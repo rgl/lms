@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2009-2023 Intel Corporation
+ * Copyright (C) 2009-2024 Intel Corporation
  */
 /*++
 
@@ -50,6 +50,8 @@ enum DATA_NAME : unsigned int
 	GetAuditLogs_F,
 	GetTheFeatureState_F,
 	GetCustomerType_F,
+	GetPlatformType_F,
+	GetCPUBrand_F,
 	GetMenageabiltyMode_F,
 	GetConfigurationInfo_F,
 	GetUserConsentState_F,
@@ -90,6 +92,8 @@ enum DATA_NAME : unsigned int
 	GetUPIDFeatureState_F,
 	SetUPIDFeatureState_F,
 	SkuMgrQualifiedBrandEntitlements_F,
+	WlanProfileNames,
+	FWCIRAWorkaround,
 
 	DATA_NAME_MAX_SENTINEL
 };

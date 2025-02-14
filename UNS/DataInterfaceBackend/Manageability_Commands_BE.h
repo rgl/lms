@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2009-2023 Intel Corporation
+ * Copyright (C) 2009-2024 Intel Corporation
  */
 /*++
 
@@ -9,6 +9,7 @@
 --*/
 
 #include "DataInterfaceBackend.h"
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -21,6 +22,8 @@ namespace Intel {
 
 			LMS_ERROR GetTheFeatureState(FEATURES feat, FEATURE_STATE& pState);
 			LMS_ERROR GetCustomerType(CUSTOMER_TYPE& pType);
+			LMS_ERROR GetPlatformType(PLATFORM_TYPE& pType);
+			LMS_ERROR GetCPUBrand(uint8_t& brand);
 			LMS_ERROR GetMenageabiltyMode(MENAGEABILTY_MODE& pMode);
 			LMS_ERROR GetFWInfo(std::string &pMEBxVersion, unsigned long &pBiosBootState, bool &pCryptoFuseEnable, bool &pLocalFWupdateEnable);
 			LMS_ERROR GetPMCVersion(std::string &pFwVer);

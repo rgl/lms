@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2010-2024 Intel Corporation
+# Copyright (C) 2010-2025 Intel Corporation
 cmake_minimum_required (VERSION 3.15)
 
 if (WIN32)
@@ -20,7 +20,8 @@ else (WIN32)
     ${PROJECT_BINARY_DIR}/UNSMessageFile.h
     ${PROJECT_BINARY_DIR}/UNSMessageMap.h
   )
-  find_package (PythonInterp REQUIRED 3)
+
+  find_package (Python3 COMPONENTS Interpreter Development)
 
   add_custom_command (
     OUTPUT ${UNS_MESSAGE_FILES}
@@ -68,6 +69,7 @@ if (UNIX)
   add_subdirectory ("WatchdogService" "WatchdogService")
 endif (UNIX)
 add_subdirectory ("DataInterfaceBackend" "DataInterfaceBackend")
+add_subdirectory ("FWCIRAWorkaroundService" "FWCIRAWorkaroundService")
 
 add_executable (lms WIN32
   UNSMain.cpp
@@ -90,6 +92,7 @@ target_link_libraries (lms
   StatusEventHandler
   TimeSyncService
   WinLogEventHandler
+  FWCIRAWorkaroundService
   $<$<BOOL:${WIN32}>:IPRefreshService>
   $<$<BOOL:${WIN32}>:WiFiProfileSyncService>
   $<$<BOOL:${WIN32}>:PartialFWUpdateService>

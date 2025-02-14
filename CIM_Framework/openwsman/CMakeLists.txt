@@ -1,12 +1,13 @@
 #
 # CMakeLists.txt for openwsman/
 #
-
-PROJECT(openwsman)
-
 # 2.6 minimum because of CMP0005 (escaping defines)
 # 2.8.12 minimum because CMake 3.19.7 says so
-cmake_minimum_required(VERSION 2.8.12)
+# 3.12 for new find python commands
+cmake_minimum_required(VERSION 3.12)
+
+
+PROJECT(openwsman)
 
 include(CTest)
 enable_testing()
@@ -22,10 +23,14 @@ if(COMMAND cmake_policy)
   if ( POLICY CMP0046 )
     cmake_policy(SET CMP0046 NEW)
   endif ( POLICY CMP0046 )
+  if ( POLICY CMP0148 )
+    # new find python commands
+    cmake_policy(SET CMP0148 NEW)
+  endif ( POLICY CMP0148 )
 endif(COMMAND cmake_policy)
 	      
 # where to look first for cmake modules, before ${CMAKE_ROOT}/Modules/ is checked
-SET(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/modules ${CMAKE_MODULE_PATH})
+# SET(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/modules ${CMAKE_MODULE_PATH})
 
 INCLUDE( ${CMAKE_SOURCE_DIR}/VERSION.cmake )
 SET(VERSION "${OPENWSMAN_MAJOR}.${OPENWSMAN_MINOR}.${OPENWSMAN_PATCH}")
@@ -43,6 +48,8 @@ IF ( NOT DEFINED PACKAGE_ARCHITECTURE )
 ENDIF ( NOT DEFINED PACKAGE_ARCHITECTURE )
 MESSAGE(STATUS "Building for ${PACKAGE_ARCHITECTURE}" )
 
+# pkg-config
+find_package(PkgConfig)
 
 # Library path (lib / lib64 )
 
@@ -79,7 +86,7 @@ SET( PACKAGE_AUTH_DIR ${LIB_INSTALL_DIR}/openwsman/authenticators )
 # explicitly declared
 MACRO(NO_HEADERS_WARNING_EXPL optionName pkgName)
    MESSAGE(STATUS "************  WARNING  *************")
-   MESSAGE(STATUS "Didn't Find ${pkgName} Headers... ")
+   MESSAGE(STATUS "Didn't find ${pkgName} headers... ")
    MESSAGE(STATUS "${optionName} explicitly requested.")
    MESSAGE(STATUS "Make sure ${pkgName} header files are available and run cmake again.")
    MESSAGE(STATUS "************************************")
@@ -92,7 +99,7 @@ MACRO(NO_HEADERS_WARNING optionName pkgName)
    SET(${optionName} NO)
    SET(HAVE_WARNINGS YES)
    MESSAGE(STATUS "************  WARNING  *************")
-   MESSAGE(STATUS "Didn't Find ${pkgName} Headers... Not Building ${pkgName} Bindings")
+   MESSAGE(STATUS "Didn't find ${pkgName} headers... not building ${pkgName} bindings")
    MESSAGE(STATUS "************************************")
 ENDMACRO(NO_HEADERS_WARNING)
 
@@ -113,7 +120,7 @@ OPTION( BUILD_LIBCIM "Build CIM plugin" YES )
 OPTION( BUILD_EXAMPLES "Build examples" YES )
 OPTION( BUILD_BINDINGS "Build client bindings and swig server plugin" YES )
 OPTION( BUILD_PYTHON3 "Build Python3 bindings" YES )
-OPTION( BUILD_PYTHON "Build Python2 bindings" YES )
+OPTION( BUILD_PYTHON "Build Python2 bindings" NO )
 IF (BUILD_PYTHON3)
 IF (BUILD_PYTHON)
 MESSAGE(FATAL_ERROR "Can only build for Python2 or Python3, but not both")
@@ -134,7 +141,11 @@ OPTION( ENABLE_EVENTING_SUPPORT "WS-Eventing wanted" YES )
 OPTION( WSMAN_DEBUG_VERBOSE "Verbose debug logging" NO )
 OPTION( ENABLE_IPV6 "Enable IPv6 support" YES )
 OPTION( BUILD_TESTS "Build tests" YES )
-OPTION( BUILD_SHARED_LIBS "Build shared libraries" YES )
+IF(APPLE)
+  OPTION( BUILD_SHARED_LIBS "Build shared libraries" NO )
+ELSE(APPLE)
+  OPTION( BUILD_SHARED_LIBS "Build shared libraries" YES )
+ENDIF(APPLE)
 
 IF (UNIX)
 add_definitions(-fPIC)
@@ -142,6 +153,7 @@ ENDIF (UNIX)
 
 IF (ENABLE_EVENTING_SUPPORT)
   SET(ENABLE_EVENTING_SUPPORT 1)
+  find_package(OpenSSL REQUIRED)
 ELSE (ENABLE_EVENTING_SUPPORT)
   SET(ENABLE_EVENTING_SUPPORT 0)
 ENDIF (ENABLE_EVENTING_SUPPORT)
@@ -167,21 +179,25 @@ ELSE( USE_PAM )
  MESSAGE(STATUS "Disabling PAM authentication" )
 ENDIF( USE_PAM )
 
-INCLUDE(FindOpenSSL)
+find_package(OpenSSL)
 IF(OPENSSL_FOUND)
   SET(HAVE_SSL 1)
   SET(USE_OPENSSL 1)
 ENDIF(OPENSSL_FOUND)
 
 IF( BUILD_RUBY )
-  INCLUDE(FindRuby)
-  MESSAGE(STATUS "Ruby: ${RUBY_EXECUTABLE}" )
-  EXECUTE_PROCESS(COMMAND ${RUBY_EXECUTABLE} -r rbconfig -e "print RbConfig::CONFIG['sitearchdir']"
-    OUTPUT_VARIABLE RUBY_SITEARCH_DIR)
-  MESSAGE(STATUS "Ruby Library: ${RUBY_LIBRARY}" )
-  MESSAGE(STATUS "Ruby Include: ${RUBY_INCLUDE_PATH}" )
+  find_package(Ruby)
+  IF(RUBY_FOUND)
+    MESSAGE(STATUS "Ruby: ${RUBY_EXECUTABLE}" )
+    MESSAGE(STATUS "Ruby Library: ${RUBY_LIBRARY}" )
+    MESSAGE(STATUS "Ruby Include: ${RUBY_INCLUDE_PATH}" )
+    MESSAGE(STATUS "Ruby Site Arch: ${RUBY_SITEARCH_DIR}" )
 
-  MESSAGE(STATUS "Building Ruby bindings" )
+    MESSAGE(STATUS "Building Ruby bindings" )
+  ELSE(RUBY_FOUND)
+    MESSAGE(WARNING "Ruby not found" )
+    SET(BUILD_RUBY NO)
+  ENDIF(RUBY_FOUND)
   IF(NOT RUBY_INCLUDE_PATH)
     IF(BUILD_RUBY_EXPLICIT)
       NO_HEADERS_WARNING_EXPL(BUILD_RUBY Ruby)
@@ -192,18 +208,19 @@ IF( BUILD_RUBY )
 ENDIF( BUILD_RUBY )
 
 IF( BUILD_PERL )
-  INCLUDE(FindPerl)
+  find_package(PerlLibs)
   IF(PERL_EXECUTABLE)
     MESSAGE(STATUS "Building Perl bindings" )
   ELSE(PERL_EXECUTABLE)
     MESSAGE(WARNING "Perl not found" )
+    SET(BUILD_PERL NO)
   ENDIF(PERL_EXECUTABLE)
 ENDIF( BUILD_PERL )
 
 IF( BUILD_JAVA )
-  INCLUDE(FindJava)
+  find_package(Java)
   IF(JAVA_COMPILE)
-    INCLUDE(FindJNI)
+    find_package(JNI)
     IF(JNI_INCLUDE_DIRS)
       MESSAGE(STATUS "Building Java bindings" )
     ELSE(JNI_INCLUDE_DIRS)
@@ -211,7 +228,7 @@ IF( BUILD_JAVA )
       SET( BUILD_JAVA "NO" )
     ENDIF(JNI_INCLUDE_DIRS)
   ELSE(JAVA_COMPILE)
-    MESSAGE(WARNING " Java compiler not found" )
+    MESSAGE(ERROR " Java compiler not found" )
     SET( BUILD_JAVA "NO" )
   ENDIF(JAVA_COMPILE)
 ENDIF( BUILD_JAVA )
@@ -238,6 +255,7 @@ ENDIF( BUILD_BINDINGS )
 
 IF ( NOT SWIG_EXECUTABLE )
   MESSAGE( STATUS "SWIG not found, skipping bindings and swig server plugin." )
+  SET(BUILD_BINDINGS FALSE)
   IF (BUILD_SWIG_PLUGIN_EXPLICIT)
     MESSAGE( FATAL "Cannot build SWIG server plugin" )
   ENDIF (BUILD_SWIG_PLUGIN_EXPLICIT)
@@ -247,13 +265,12 @@ IF ( NOT SWIG_EXECUTABLE )
   ENDIF( BUILD_PYTHON3_EXPLICIT OR BUILD_PYTHON_EXPLICIT OR BUILD_RUBY_EXPLICIT OR BUILD_PERL_EXPLICIT OR BUILD_JAVA_EXPLICIT)
 ELSE ( NOT SWIG_EXECUTABLE )
   MESSAGE( STATUS "SWIG ${SWIG_VERSION} found at ${SWIG_EXECUTABLE}" )
-  ADD_SUBDIRECTORY(bindings)
 ENDIF ( NOT SWIG_EXECUTABLE )
 
 # curl
 
 IF(UNIX)
-  INCLUDE(FindCURL)
+  find_package(CURL)
   IF ( NOT CURL_FOUND)
    MESSAGE( FATAL_ERROR " curl not found" )
   ELSE ( NOT CURL_FOUND)
@@ -269,7 +286,7 @@ ENDIF(UNIX)
 
 # xml2
 
-INCLUDE(FindLibXml2)
+find_package(LibXml2)
 IF ( NOT LIBXML2_FOUND)
   MESSAGE( FATAL_ERROR " libxml2 not found" )
 ELSE ( NOT LIBXML2_FOUND)
@@ -279,7 +296,7 @@ ENDIF( NOT LIBXML2_FOUND)
 # pthreads
 
 IF(UNIX)
-  INCLUDE(FindThreads)
+  find_package(Threads)
   IF( NOT CMAKE_USE_PTHREADS_INIT )
     MESSAGE( FATAL_ERROR " openwsman needs pthread" )
   ELSE( NOT CMAKE_USE_PTHREADS_INIT )
@@ -296,6 +313,16 @@ IF(HAVE_LIBDL)
 ELSE(HAVE_LIBDL)
  SET(HAVE_LIBDL 0)
 ENDIF(HAVE_LIBDL)
+
+# m
+
+FIND_LIBRARY( HAVE_LIBM "m" )
+IF(HAVE_LIBM)
+ SET(M_LIBRARIES ${HAVE_LIBM})
+ SET(HAVE_LIBM 1)
+ELSE(HAVE_LIBM)
+ SET(HAVE_LIBM 0)
+ENDIF(HAVE_LIBM)
 
 # crypt
 
@@ -483,7 +510,6 @@ SET(PACKAGE "openwsman")
 SET(PACKAGE_BUGREPORT "\"www.openwsman.org\"")
 SET(PACKAGE_NAME "\"${PACKAGE}\"")
 SET(PACKAGE_STRING "\"WS-Management for all\"")
-SET(PACKAGE_TARNAME "\"openwsman-${VERSION}.tar.bz2\"")
 
 SET("prefix" ${CMAKE_INSTALL_PREFIX})
 SET("includedir" ${CMAKE_INSTALL_PREFIX}/include)
@@ -504,7 +530,7 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile.in ${CMAKE_CURRENT_BINARY_DI
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/openwsman.pc.in ${CMAKE_CURRENT_BINARY_DIR}/openwsman.pc)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/openwsman++.pc.in ${CMAKE_CURRENT_BINARY_DIR}/openwsman++.pc)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/openwsman-server.pc.in ${CMAKE_CURRENT_BINARY_DIR}/openwsman-server.pc)
-configure_file(${CMAKE_CURRENT_SOURCE_DIR}/package/openwsman.spec.in ${CMAKE_CURRENT_BINARY_DIR}/package/openwsman.spec)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/package/openwsman.spec.in ${CMAKE_CURRENT_BINARY_DIR}/package/openwsman.spec @ONLY)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/package/openwsman.service.in ${CMAKE_CURRENT_BINARY_DIR}/package/openwsman.service)
 
 INSTALL(FILES ${CMAKE_CURRENT_BINARY_DIR}/openwsman.pc
@@ -520,6 +546,10 @@ add_subdirectory(include)
 add_subdirectory(src)
 add_subdirectory(doc)
 add_subdirectory(etc)
+
+IF(BUILD_BINDINGS)
+  add_subdirectory(bindings)
+ENDIF(BUILD_BINDINGS)
 
 IF ( BUILD_TESTS )
 add_subdirectory(tests)
@@ -552,6 +582,7 @@ SET(CPACK_PACKAGE_VERSION_MINOR ${OPENWSMAN_MINOR})
 SET(CPACK_PACKAGE_VERSION_PATCH ${OPENWSMAN_PATCH})
 SET(CPACK_GENERATOR "TBZ2")
 SET(CPACK_SOURCE_GENERATOR "TBZ2")
+SET(CPACK_PACKAGE_DIRECTORY "package")
 SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${PACKAGE}-${VERSION}" )
    MESSAGE(STATUS "Package file ${CPACK_SOURCE_PACKAGE_FILE_NAME}")
 

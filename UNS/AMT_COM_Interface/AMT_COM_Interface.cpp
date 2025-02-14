@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2009-2023 Intel Corporation
+ * Copyright (C) 2009-2024 Intel Corporation
  */
 /*++
 
@@ -88,6 +88,10 @@ HRESULT AddRegKeys()
 		return 1;
 	if (false == ds.SetDataValue(GetCustomerType_F, L"", true))
 		return 1;
+	if (false == ds.SetDataValue(GetPlatformType_F, L"", true))
+		return 1;
+	if (false == ds.SetDataValue(GetCPUBrand_F, L"", true))
+		return 1;
 	if (false == ds.SetDataValue(GetMenageabiltyMode_F, L"", true))
 		return 1;
 	if (false == ds.SetDataValue(GetConfigurationInfo_F, L"", true))
@@ -122,7 +126,10 @@ HRESULT AddRegKeys()
 		return 1;
 	if (false == ds.SetDataValue(SkuMgrQualifiedBrandEntitlements_F, L"", true))
 		return 1;
-
+	if (false == ds.SetDataValue(WlanProfileNames, L"", true))
+		return 1;
+	if (false == ds.SetDataValue(FWCIRAWorkaround, 0x0F, true))
+		return 1;
 	if (false == ds.DeleteDataVal(NETWORK_TRAFFIC_TX_CEASED_))
 		return 1;
 	return 0;

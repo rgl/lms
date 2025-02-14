@@ -13,6 +13,7 @@
 #include "AMTHICommand.h"
 #include "GetFWVersionCommand.h"
 #include "GetFWCapsCommand.h"
+#include "MNGIsChangeToAMTEnabledCommand.h"
 #include "GMSExternalLogger.h"
 #ifdef WIN32
 #include <Dbt.h>
@@ -25,6 +26,7 @@
 #include "TimeSynchronizationClient.h"
 #include "WifiPortClient.h"
 #include "WlanWSManClient.h"
+#include "AMTFCFHWSmanClient.h"
 
 #include <cstdint>
 #include <chrono>
@@ -127,6 +129,89 @@ bool CheckTimeSyncStateLoad(unsigned int portForwardingPort)
 	}
 	UNS_DEBUG(L"Configurator::CheckTimeSyncStateLoad %d\n", timeSyncState);
 	return ret && timeSyncState;
+}
+
+bool CheckFWCIRAWorkaround(unsigned int portForwardingPort)
+{
+	UNS_DEBUG(L"Configurator::CheckFWCIRAWorkaround\n");
+
+	DataStorageWrapper& ds = DSinstance();
+
+	unsigned long state = 0;
+	if (!ds.GetDataValue(FWCIRAWorkaround, state, true))
+	{
+		UNS_DEBUG(L"Configurator::CheckFWCIRAWorkaround Failed to get workaround timeout\n");
+		return false;
+	}
+
+	if (state < 0x01 || state > 0xFE)
+	{
+		UNS_DEBUG(L"Configurator::CheckFWCIRAWorkaround disabled, timeout 0x%x out of range\n", state);
+		return false;
+	}
+
+	state = Intel::MEI_Client::AMTHI_Client::PROVISIONING_STATE_PRE;
+	if (!ds.GetDataValue(AMT_PROVISIONING_STATE_S, state, true))
+	{
+		UNS_ERROR(L"Configurator::CheckFWCIRAWorkaround Failed to get provisioning state\n");
+		return false;
+	}
+
+	if (state == Intel::MEI_Client::AMTHI_Client::PROVISIONING_STATE_PRE)
+	{
+		UNS_DEBUG(L"Configurator::CheckFWCIRAWorkaround disabled, unprovisioned\n");
+		return false;
+	}
+
+	try
+	{
+		Intel::MEI_Client::Manageability_Client::MNGIsChangeToAMTEnabledCommand cmd;
+		Intel::MEI_Client::Manageability_Client::IsChangedEnabledResponse res = cmd.getResponse();
+		UNS_DEBUG(L"Configurator::CheckFWCIRAWorkaround %d\n", !res.CIRAPeriodicTimerFix);
+		if (res.CIRAPeriodicTimerFix)
+		{
+			UNS_DEBUG(L"Configurator::CheckFWCIRAWorkaround disabled, FW is fixed\n");
+			return false;
+		}
+	}
+	catch (const Intel::MEI_Client::MEIClientException &exc)
+	{
+		UNS_ERROR(L"Configurator::CheckFWCIRAWorkaround MNGIsChangeToAMTEnabledCommand failed %C\n", exc.what());
+		return false;
+	}
+	catch (const std::exception	&exc)
+	{
+		UNS_ERROR(L"Configurator::CheckFWCIRAWorkaround MNGIsChangeToAMTEnabledCommand failed %C\n", exc.what());
+		return false;
+	}
+
+	for (int i = 0; i < CONFIGURATOR_CHECK_RETRIES; i++)
+	{
+		short exists = false;
+		AMTFCFHWSmanClient ciraClient(portForwardingPort);
+		if (!ciraClient.periodicAllDayPolicyExists(&exists))
+		{
+			continue;
+		}
+		if (!exists)
+		{
+			UNS_DEBUG(L"Configurator::CheckFWCIRAWorkaround disabled, no periodic all day policy\n");
+			return false;
+		}
+		if (!ciraClient.userInitiatedPolicyRuleExists(&exists))
+		{
+			continue;
+		}
+		if (!exists)
+		{
+			UNS_DEBUG(L"Configurator::CheckFWCIRAWorkaround disabled, no user initiated policy\n");
+			return false;
+		}
+		UNS_DEBUG(L"Configurator::CheckFWCIRAWorkaround enabled\n");
+		return true;
+	}
+	UNS_ERROR(L"Configurator::CheckFWCIRAWorkaround disabled, failed to receive policy\n");
+	return false;
 }
 
 #ifdef WIN32
@@ -302,6 +387,7 @@ int Configurator::init (int argc, ACE_TCHAR *argv[])
 	m_checkLoadMap[GMS_TIMESYNCSERVICE] = CheckTimeSyncStateLoad;
 	m_checkLoadMap[GMS_WIFIPROFILESYNCSERVICE] = CheckWiFiProfileSyncRequired;
 	m_checkLoadMap[GMS_WATCHDOGSERVICE] = CheckWatchdogRequired;
+	m_checkLoadMap[GMS_FWCIRAWORKAROUNDSERVICE] = CheckFWCIRAWorkaround;
 
 	deferredResumeTimerId_ = -1;
 
@@ -1195,16 +1281,18 @@ void Configurator::ExecuteTask(MessageBlockPtr& mbPtr)
 		switch(type) //For messages with special DataBlock
 		{
 			case MB_DEVICE_EVENT:
-				taskMbPtr->data_block(new DeviceEventDataBlock(*((DeviceEventDataBlock*)mbPtr->data_block())));
+				taskMbPtr->data_block(new DeviceEventDataBlock(((DeviceEventDataBlock*)mbPtr->data_block())->eventType,
+					((DeviceEventDataBlock*)mbPtr->data_block())->wasOnOurGuid));
 				break;
 			case MB_CONFIGURATION_CHANGE:
-				taskMbPtr->data_block(new ChangeConfiguration(*((ChangeConfiguration*)mbPtr->data_block())));
+				taskMbPtr->data_block(new ChangeConfiguration(((ChangeConfiguration*)mbPtr->data_block())->type,
+					((ChangeConfiguration*)mbPtr->data_block())->value));
 				break;
 			case MB_PORT_FORWARDING_STOPPED:
-				taskMbPtr->data_block(new PortForwardingStoppedBlock(*((PortForwardingStoppedBlock*)mbPtr->data_block())));
+				taskMbPtr->data_block(new PortForwardingStoppedBlock(((PortForwardingStoppedBlock*)mbPtr->data_block())->m_publishFailure));
 				break;
 			case MB_PORT_FORWARDING_STARTED:
-				taskMbPtr->data_block(new PortForwardingStartedBlock(*((PortForwardingStartedBlock*)mbPtr->data_block())));
+				taskMbPtr->data_block(new PortForwardingStartedBlock(((PortForwardingStartedBlock*)mbPtr->data_block())->m_portForwardingPort));
 			break;
 			default:
 				taskMbPtr->data_block(new ACE_Data_Block());

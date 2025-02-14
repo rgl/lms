@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2017-2023 Intel Corporation
+ * Copyright (C) 2017-2024 Intel Corporation
  */
 #include "DBusService.h"
 #include "Manageability_Commands.h"
@@ -36,6 +36,35 @@ namespace Manageability {
 		Intel::LMS::LMS_ERROR error = Intel::LMS::Manageability_Commands_BE(th->GetGmsPortForwardingPort()).GetCustomerType(customer_type);
 		if (error == Intel::LMS::LMS_ERROR::OK)
 			g_dbus_method_invocation_return_value(invocation, g_variant_new ("(u)", customer_type));
+		else
+			send_error(invocation, error);
+		return TRUE;
+	}
+
+	gboolean on_get_platform_type(LmsManageability * skeleton, GDBusMethodInvocation * invocation,
+				       gpointer user_data)
+	{
+		UNS_DEBUG(L"on_get_platform_type\n");
+		DBusService *th = (DBusService*)user_data;
+		PLATFORM_TYPE platform_type = DESKTOP;
+
+		Intel::LMS::LMS_ERROR error = Intel::LMS::Manageability_Commands_BE(th->GetGmsPortForwardingPort()).GetPlatformType(platform_type);
+		if (error == Intel::LMS::LMS_ERROR::OK)
+			g_dbus_method_invocation_return_value(invocation, g_variant_new("(u)", platform_type));
+		else
+			send_error(invocation, error);
+		return TRUE;
+	}
+
+	gboolean on_get_cpubrand(LmsManageability* skeleton, GDBusMethodInvocation* invocation, gpointer user_data)
+	{
+		UNS_DEBUG(L"on_get_cpubrand\n");
+		DBusService* th = (DBusService*)user_data;
+		uint8_t brand = 0;
+
+		Intel::LMS::LMS_ERROR error = Intel::LMS::Manageability_Commands_BE(th->GetGmsPortForwardingPort()).GetCPUBrand(brand);
+		if (error == Intel::LMS::LMS_ERROR::OK)
+			g_dbus_method_invocation_return_value(invocation, g_variant_new("(u)", brand));
 		else
 			send_error(invocation, error);
 		return TRUE;
@@ -113,6 +142,10 @@ namespace Manageability {
 			G_CALLBACK (on_get_the_feature_state), user_data);
 		g_signal_connect (*skeleton_manageability, "handle-get-customer-type",
 			G_CALLBACK (on_get_customer_type), user_data);
+		g_signal_connect(*skeleton_manageability, "handle-get-platform-type",
+			G_CALLBACK(on_get_platform_type), user_data);
+		g_signal_connect(*skeleton_manageability, "handle-get-cpubrand",
+			G_CALLBACK(on_get_cpubrand), user_data);
 		g_signal_connect (*skeleton_manageability, "handle-get-menageabilty-mode",
 			G_CALLBACK (on_get_menageabilty_mode), user_data);
 		g_signal_connect (*skeleton_manageability, "handle-get-fwinfo",

@@ -40,6 +40,8 @@
 #include <time.h>
 
 #include "u/libu.h"
+int facility = LOG_DAEMON;
+
 #include "wsman-soap.h"
 #include "wsman-xml.h"
 #include "wsman-xml-serializer.h"
@@ -993,7 +995,7 @@ static void example12()
 	item org = {1.257,NULL};
 	SER_TYPEINFO_REAL32_ATTR;
 	WsXmlDocH doc;
-	WsXmlNodeH node = ws_xml_get_doc_root(doc);
+	WsXmlNodeH node;
 	 printf
             ("\n\n   ********   example12. real32/64 deserialize/serialize  ********\n");
 	WsSerializerContextH cntx = ws_serializer_init();

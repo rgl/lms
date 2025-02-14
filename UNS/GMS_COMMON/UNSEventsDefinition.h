@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2009-2020 Intel Corporation
+ * Copyright (C) 2009-2025 Intel Corporation
  */
 /*++
 
@@ -75,9 +75,6 @@
 #define EVENT_WLAN_CONTROL_ME					57
 #define EVENT_WLAN_CONTROL_HOST					58
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-#define EVENT_SECIO_SEMAPHORE_AT_HOST			60
-#define EVENT_SECIO_SEMAPHORE_AT_ME				61
-#define EVENT_SECIO_SEMAPHORE_TIMEOUT			62
 #define EVENT_SECIO_CONFIGURATION_EVENT			63
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 #define EVENT_KVM_SESSION_REQUESTED				70
@@ -159,6 +156,8 @@
 #define EVENT_FW_FATAL_ERROR                            282
 #define EVENT_AMT_DISABLE_ATTEMPT						283
 #define EVENT_WATCHDOG_ERROR                            284
+#define EVENT_FWCIRAWORKAROUND_SUCCESS                  285
+#define EVENT_FWCIRAWORKAROUND_FAILURE                  286
 
 //note this should be updated when when adding events
 #define MAX_EVENT_NUM							290

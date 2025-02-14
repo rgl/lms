@@ -78,7 +78,7 @@ HRESULT CManageability_Commands::GetTheFeatureState(FEATURES feat, FEATURE_STATE
 	}
 	catch (const std::exception &e)
 	{
-		UNS_ERROR(L"GetTheFeatureState failed %S\n", e.what());
+		UNS_ERROR(L"GetTheFeatureState failed %C\n", e.what());
 		return E_FAIL;
 	}
 }
@@ -118,7 +118,7 @@ HRESULT CManageability_Commands::GetCustomerType(CUSTOMER_TYPE* pType)
 	}
 	catch (const std::exception &e)
 	{
-		UNS_ERROR(L"GetCustomerType failed %S\n", e.what());
+		UNS_ERROR(L"GetCustomerType failed %C\n", e.what());
 		return E_FAIL;
 	}
 }
@@ -128,8 +128,47 @@ HRESULT CManageability_Commands::GetPlatformType(PLATFORM_TYPE* pType)
 	if (pType == nullptr)
 		return E_POINTER;
 
-	UNS_DEBUG(L"CManageability_Commands::GetPlatformType - deprecated\n");
-	return E_NOTIMPL;
+	UNS_DEBUG(L"CManageability_Commands::GetPlatformType\n");
+
+	try
+	{
+		if (CheckCredentials(GetPlatformType_F) != S_OK)
+			return E_ACCESSDENIED;
+
+		Intel::LMS::Manageability_Commands_BE be(GetGmsPortForwardingPort());
+		Intel::LMS::LMS_ERROR err = be.GetPlatformType(*pType);
+		return LMSError2HRESULT(err);
+	}
+	catch (const std::exception& e)
+	{
+		UNS_ERROR(L"GetPlatformType failed %C\n", e.what());
+		return E_FAIL;
+	}
+}
+
+HRESULT CManageability_Commands::GetCPUBrand(SHORT* pBrand)
+{
+	if (pBrand == nullptr)
+		return E_POINTER;
+
+	UNS_DEBUG(L"CManageability_Commands::GetCPUBrand\n");
+
+	try
+	{
+		if (CheckCredentials(GetCPUBrand_F) != S_OK)
+			return E_ACCESSDENIED;
+
+		uint8_t brand = 0;
+		Intel::LMS::Manageability_Commands_BE be(GetGmsPortForwardingPort());
+		Intel::LMS::LMS_ERROR err = be.GetCPUBrand(brand);
+		*pBrand = brand;
+		return LMSError2HRESULT(err);
+	}
+	catch (const std::exception& e)
+	{
+		UNS_ERROR(L"GetCPUBrand failed %C\n", e.what());
+		return E_FAIL;
+	}
 }
 
 HRESULT CManageability_Commands::GetMenageabiltyMode(MENAGEABILTY_MODE* pMode)
@@ -158,7 +197,7 @@ HRESULT CManageability_Commands::GetMenageabiltyMode(MENAGEABILTY_MODE* pMode)
 	}
 	catch (const std::exception &e)
 	{
-		UNS_ERROR(L"GetMenageabiltyMode failed %S\n", e.what());
+		UNS_ERROR(L"GetMenageabiltyMode failed %C\n", e.what());
 		return E_FAIL;
 	}
 }
@@ -209,7 +248,7 @@ HRESULT CManageability_Commands::GetFWInfo(BSTR* pMEBxVersion, ULONG* pBiosBootS
 	}
 	catch (const std::exception &e)
 	{
-		UNS_ERROR(L"GetFWInfo failed %S\n", e.what());
+		UNS_ERROR(L"GetFWInfo failed %C\n", e.what());
 		return E_FAIL;
 	}
 }
@@ -246,7 +285,7 @@ HRESULT CManageability_Commands::GetPMCVersion(BSTR* pFwVer)
 	}
 	catch (const std::exception &e)
 	{
-		UNS_ERROR(L"GetPMCVersion failed %S\n", e.what());
+		UNS_ERROR(L"GetPMCVersion failed %C\n", e.what());
 		return E_FAIL;
 	}
 }
@@ -282,7 +321,7 @@ STDMETHODIMP CManageability_Commands::IsMeasuredBootState(VARIANT_BOOL *pState)
 	}
 	catch (const std::exception &e)
 	{
-		UNS_ERROR(L"IsMeasuredBootState failed %S\n", e.what());
+		UNS_ERROR(L"IsMeasuredBootState failed %C\n", e.what());
 		return E_FAIL;
 	}
 }

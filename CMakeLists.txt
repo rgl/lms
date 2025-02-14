@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2010-2024 Intel Corporation
+# Copyright (C) 2010-2025 Intel Corporation
 cmake_minimum_required (VERSION 3.15)
 project (lms)
 
@@ -172,6 +172,8 @@ if (UNIX)
     list(APPEND CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION "/lib")
     list(APPEND CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION "/lib/udev")
     list(APPEND CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION "/lib/udev/rules.d")
+    list(APPEND CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION "/usr/lib/udev")
+    list(APPEND CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION "/usr/lib/udev/rules.d")
     list(APPEND CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION "/etc/dbus-1")
     list(APPEND CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION "/etc/dbus-1/system.d")
     list(APPEND CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION "/usr/share/dbus-1")
@@ -184,8 +186,8 @@ if (UNIX)
     list(APPEND CPACK_RPM_RELOCATION_PATHS "/etc/logrotate.d")
     list(APPEND CPACK_RPM_RELOCATION_PATHS "/etc/dbus-1/system.d")
 
-    set(CPACK_RPM_POST_INSTALL_SCRIPT_FILE ${CMAKE_CURRENT_SOURCE_DIR}/UNS/linux_scripts/postinst)
-    set(CPACK_RPM_PRE_UNINSTALL_SCRIPT_FILE ${CMAKE_CURRENT_SOURCE_DIR}/UNS/linux_scripts/prerm)
+    set(CPACK_RPM_POST_INSTALL_SCRIPT_FILE ${CMAKE_CURRENT_SOURCE_DIR}/UNS/linux_scripts/post.rpm)
+    set(CPACK_RPM_PRE_UNINSTALL_SCRIPT_FILE ${CMAKE_CURRENT_SOURCE_DIR}/UNS/linux_scripts/preun.rpm)
   endif(RPM_EXE)
 else (UNIX)
   set (CPACK_GENERATOR "ZIP")
