@@ -12,6 +12,8 @@ jobs:
             image_tag: 11
           - image_name: debian
             image_tag: 12
+          - image_name: debian
+            image_tag: 13
           - image_name: ubuntu
             image_tag: 20.04
           - image_name: ubuntu

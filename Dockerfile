@@ -1,7 +1,7 @@
-ARG IMAGE=debian:12
+ARG IMAGE=debian:13
 ARG NETWORK_NM=OFF
 ARG NETWORK_CM=OFF
-FROM ${IMAGE} as build
+FROM ${IMAGE} AS build
 ENV DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC
 RUN apt-get update && \
     apt-get install -y \
@@ -34,7 +34,7 @@ RUN set -x && \
     dpkg-deb --info *.deb && \
     dpkg-deb --contents *.deb
 
-FROM ${IMAGE} as test
+FROM ${IMAGE} AS test
 ENV DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC
 RUN apt-get update && \
     apt-get install -y \
@@ -46,5 +46,5 @@ RUN cd /test && \
     apt-get update
 RUN apt-get install -y lms
 
-FROM scratch as artifacts
+FROM scratch AS artifacts
 COPY --from=test /test/*.deb /
