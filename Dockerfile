@@ -2,6 +2,7 @@ ARG IMAGE=debian:13
 ARG NETWORK_NM=OFF
 ARG NETWORK_CM=OFF
 FROM ${IMAGE} AS build
+ARG IMAGE
 ENV DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC
 RUN apt-get update && \
     apt-get install -y \
@@ -22,6 +23,7 @@ RUN apt-get update && \
 COPY . /lms/
 RUN set -x && \
     cd /lms && \
+    if [ "${IMAGE}" = "ubuntu:26.04" ]; then sed -i -E 's,libxml2,libxml2-16,g' CMakeLists.txt; fi && \
     mkdir build && \
     cd build && \
     cmake \

@@ -20,9 +20,11 @@ jobs:
             image_tag: 22.04
           - image_name: ubuntu
             image_tag: 24.04
+          - image_name: ubuntu
+            image_tag: 26.04
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Build
         run: |
           set -euxo pipefail
@@ -37,7 +39,7 @@ jobs:
             mv "$p" "${p/-Linux\.deb/-${{ matrix.image_name }}-${{ matrix.image_tag }}.deb}"
           done
       - name: Archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: artifacts-${{ matrix.image_name }}-${{ matrix.image_tag }}
           path: |
