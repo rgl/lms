@@ -12,6 +12,7 @@
 #define __MEI_COMMAND_H__
 #include "heci.h"
 #include "MEIClientException.h"
+#include <cstdint>
 #include <memory>
 #include <vector>
 

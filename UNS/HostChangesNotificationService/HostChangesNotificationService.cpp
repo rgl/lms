@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2011-2023 Intel Corporation
+ * Copyright (C) 2011-2025 Intel Corporation
  */
 #include "global.h"
 
@@ -23,7 +23,7 @@ HostChangesNotificationService::init (int argc, ACE_TCHAR *argv[])
 	static unsigned long nGetFQDN_Interval = 3600 * GMS_ACE_SECOND;
 	ACE_Time_Value interval (nGetFQDN_Interval); 
 
-	/*long timerID = */ACE_Reactor::instance()->schedule_timer (this,
+	gmsSubServiceReactor.schedule_timer(this,
 		0,
 		ACE_Time_Value::zero,
 		interval);
@@ -33,11 +33,12 @@ HostChangesNotificationService::init (int argc, ACE_TCHAR *argv[])
 }
 
 int
-HostChangesNotificationService::fini (void)
+HostChangesNotificationService::fini(void)
 {
 	UNS_DEBUG(L"HostChangesNotificationService service stopped\n");
-	ACE_Reactor::instance()->cancel_timer (this);
-	return 0;
+	
+	// Call base class fini() first for common cleanup
+	return GmsSubService::fini();
 }
 
 const ACE_TString
@@ -57,7 +58,7 @@ int HostChangesNotificationService::handle_timeout( const ACE_Time_Value &curren
 	MessageBlockPtr mbPtr(new ACE_Message_Block(), deleteMessageBlockPtr);
 	mbPtr->data_block(new ACE_Data_Block());
 	mbPtr->msg_type(MB_TIMER_EXPIRED);
-	this->putq(mbPtr->duplicate()); 
+	GmsService::putq_timeout(this, name(), mbPtr);
 
 	return 0;
 }

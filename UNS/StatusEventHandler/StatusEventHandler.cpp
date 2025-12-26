@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2010-2023 Intel Corporation
+ * Copyright (C) 2010-2025 Intel Corporation
  */
 #include "UNSEventsDefinition.h"
 #include "StatusEventHandler.h"
@@ -89,21 +89,22 @@ int StatusEventHandler::init (int argc, ACE_TCHAR *argv[])
 	MessageBlockPtr mbPtr(new ACE_Message_Block(), deleteMessageBlockPtr);
 	mbPtr->data_block(new ACE_Data_Block());
 	mbPtr->msg_type(MB_SRVICE_UP);
-	this->putq(mbPtr->duplicate());
+	GmsService::putq_timeout(this, name(), mbPtr);
 
 	return 0;
 }
 
-int StatusEventHandler::fini (void)
+int StatusEventHandler::fini(void)
 {
 	UNS_DEBUG(L"StatusEventHandler service finalized\n");
-	ACE_Reactor::instance()->cancel_timer (this);
-	return 0;
+	
+	// Call base class fini for proper cleanup
+	return GmsSubService::fini();
 }
 
 int StatusEventHandler::suspend()
 {
-	ACE_Reactor::instance()->cancel_timer (this);
+	gmsSubServiceReactor.cancel_timer(this);
 	return EventHandler::suspend();
 }
 
@@ -114,7 +115,7 @@ int StatusEventHandler::resume()
 	MessageBlockPtr mbPtr(new ACE_Message_Block(), deleteMessageBlockPtr);
 	mbPtr->data_block(new ACE_Data_Block());
 	mbPtr->msg_type(MB_SRVICE_UP);
-	this->putq(mbPtr->duplicate());
+	GmsService::putq_timeout(this, name(), mbPtr);
 
 	return res;
 }
@@ -1188,12 +1189,6 @@ Intel::MEI_Client::AMTHI_Client::AMT_PROVISIONING_STATE StatusEventHandler::Upda
 	m_prevProvState = State;
 	return prevState;
 }
-
-void StatusEventHandler::SafeSetProvisioningState(Intel::MEI_Client::AMTHI_Client::AMT_PROVISIONING_STATE State)
-{
-	std::lock_guard<std::mutex> lock(m_semAMTEnabled);
-	m_prevProvState = State;
-}
  
 bool StatusEventHandler::GetUserConsentState(OPT_IN_STATE* pState, USER_CONSENT_POLICY* pPolicy)
 {
@@ -1338,7 +1333,7 @@ void StatusEventHandler::firstPullForEvents(void)
 	{
 		prevProvState = (AMTHI_Client::AMT_PROVISIONING_STATE)val;
 	}
-	SafeSetProvisioningState(prevProvState);
+	UpdatePrevProvisioningState(prevProvState);
 }
 
 void StatusEventHandler::checkForBootReason()
@@ -1465,7 +1460,6 @@ bool StatusEventHandler::GetEACEnabled(bool& enable)
 	{		
 		AMTHI_Client::GetEACStateCommand getEACStateCommand;
 		AMTHI_Client::AMT_BOOLEAN Eac_enabled = getEACStateCommand.getResponse().EacEnabled;
-		std::lock_guard<std::mutex> lock(m_semAMTEnabled);
 		enable = m_eacEnabled = (Eac_enabled != AMTHI_Client::AMT_FALSE);
 	}
 	catch (AMTHI_Client::AMTHIErrorException& e)

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2017-2024 Intel Corporation
+ * Copyright (C) 2017-2025 Intel Corporation
  */
 #include <gio/gio.h>
 
@@ -107,7 +107,7 @@ void DBusThread::on_bus_acquired(GDBusConnection *connection,
 	Intel::DBus::UNSAlert::on_bus_acquired(connection, &th->m_skeleton_alert, th->m_father);
 	th->m_have_bus = true;
 	for (const auto alert : th->m_store)
-		th->send_alarm(alert);
+		th->send_alarm(std::move(alert));
 	th->m_store.clear();
 	UNS_DEBUG(L"Main DBus Thread on_bus_acquired %d\n", ret);
 }
@@ -155,7 +155,8 @@ int DBusService::fini (void)
 	m_DBusThread.stop();
 	m_DBusThread.thr_mgr()->wait_task(&m_DBusThread);
 
-	return 0;
+	// Call base class fini for proper cleanup
+	return EventHandler::fini();
 }
 
 const ACE_TString DBusService::name()

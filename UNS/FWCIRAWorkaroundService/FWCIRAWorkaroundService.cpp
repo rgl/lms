@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2024 Intel Corporation
+ * Copyright (C) 2024-2025 Intel Corporation
  */
 #include "FWCIRAWorkaroundService.h"
 #include "UNSEventsDefinition.h"
@@ -32,7 +32,7 @@ int FWCIRAWorkaroundService::init(int argc, ACE_TCHAR *argv[])
 	UNS_DEBUG(L"FWCIRAWorkaroundService::init timeout 0x%x\n", timeout);
 	// Start timer to have first ping immediately
 	ACE_Time_Value ace_interval(timeout * GMS_ACE_MINUTE);
-	ACE_Reactor::instance()->schedule_timer(this, 0, ace_interval, ace_interval);
+	gmsSubServiceReactor.schedule_timer(this, 0, ace_interval, ace_interval);
 	startSubService();
 	return 0;
 }
@@ -40,8 +40,9 @@ int FWCIRAWorkaroundService::init(int argc, ACE_TCHAR *argv[])
 int FWCIRAWorkaroundService::fini(void)
 {
 	FuncEntryExit<void> fee(this, L"fini");
-	ACE_Reactor::instance()->cancel_timer(this);
-	return 0;
+	
+	// Call base class fini for common cleanup
+	return GmsSubService::fini();
 }
 
 const ACE_TString FWCIRAWorkaroundService::name()
@@ -73,7 +74,7 @@ int FWCIRAWorkaroundService::handle_timeout(const ACE_Time_Value &current_time, 
 	MessageBlockPtr mbPtr(new ACE_Message_Block(), deleteMessageBlockPtr);
 	mbPtr->data_block(new ACE_Data_Block());
 	mbPtr->msg_type(MB_TIMER_EXPIRED);
-	this->putq(mbPtr->duplicate());
+	GmsService::putq_timeout(this, name(), mbPtr);
 
 	return 0;
 }

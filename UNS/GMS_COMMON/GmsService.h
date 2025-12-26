@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2010-2024 Intel Corporation
+ * Copyright (C) 2010-2025 Intel Corporation
  */
 #ifndef _GMS_SERVICE
 #define _GMS_SERVICE
@@ -9,6 +9,7 @@
 #include <map>
 #include "ace/NT_Service.h"
 #include "ace/Mutex.h"
+#include "ace/Reactor.h"
 #include "MessageBlockPtr.h"
 #include "ace/streams.h"
 #include "IServicesManager.h"
@@ -57,6 +58,7 @@ public:
 	virtual int resume();
 	int stop();
 
+	static bool putq_timeout(ACE_Task *task, const ACE_TString& name, const MessageBlockPtr& mb);
 	virtual bool sendMessage(const ACE_TString &name, const MessageBlockPtr &mb) const;
 
 	//implement IServicesManager
@@ -103,6 +105,8 @@ public:
 	}
 
 private:
+	ACE_Reactor gmsReactor;
+
 	bool stopped;
 	bool loading;
 #ifdef WIN32
@@ -116,6 +120,8 @@ private:
 	typedef std::map<ACE_TString, ACE_Static_Svc_Descriptor&> svc_map;
 	svc_map m_svcMap;
 	void initServiceMap();
+
+	const size_t QUEUE_SIZE = 64 * 1024; /* 64K */
 };
 
 #endif // _GMS_SERVICE

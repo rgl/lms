@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2018-2023 Intel Corporation
+ * Copyright (C) 2018-2025 Intel Corporation
  */
 #include "WiFiProfileSyncService.h"
 #include "WlanBL.h"
@@ -33,7 +33,7 @@ void WiFiProfileSyncService::InitAndPerformSync()
 
 	if (!InitWlan())
 	{
-		ACE_Reactor::instance()->schedule_timer(this, NULL, ACE_Time_Value(INIT_LOOP_DELAY), ACE_Time_Value::zero);
+		gmsSubServiceReactor.schedule_timer(this, NULL, ACE_Time_Value(INIT_LOOP_DELAY), ACE_Time_Value::zero);
 		return;
 	}
 
@@ -83,7 +83,7 @@ int WiFiProfileSyncService::handle_timeout(const ACE_Time_Value &current_time, c
 		MessageBlockPtr mbPtr(new ACE_Message_Block(), deleteMessageBlockPtr);
 		mbPtr->data_block(new ACE_Data_Block());
 		mbPtr->msg_type(MB_TIMER_EXPIRED);
-		this->putq(mbPtr->duplicate());
+		GmsService::putq_timeout(this, name(), mbPtr);
 
 	}
 	return 0;
@@ -92,12 +92,16 @@ int WiFiProfileSyncService::handle_timeout(const ACE_Time_Value &current_time, c
 
 int WiFiProfileSyncService::fini(void)
 {
-	UNS_DEBUG(L"[ProfileSync] " __FUNCTIONW__"[%03l]:: WiFiProfileSync service stopped\n");
+	UNS_DEBUG(L"[ProfileSync] " __FUNCTIONW__"[%03l]:: WiFiProfileSyncService::fini - starting shutdown\n");
+	
+	// Call base class fini for proper cleanup
+	int result = EventHandler::fini();
+	
 	WlanCloseHandle(m_wlanHandle, nullptr);
-	ACE_Reactor::instance()->cancel_timer(this);
-	return 0;
+	
+	UNS_DEBUG(L"[ProfileSync] WiFiProfileSync service stopped\n");
+	return result;
 }
-
 
 const ACE_TString WiFiProfileSyncService::name()
 {

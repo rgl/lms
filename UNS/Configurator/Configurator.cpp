@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2010-2024 Intel Corporation
+ * Copyright (C) 2010-2025 Intel Corporation
  */
 #include "Configurator.h"
 #include "LoadedServices.h"
@@ -369,8 +369,6 @@ bool Configurator::PasswordOnWakeupDisabled() const
 bool Configurator::PasswordOnWakeupDisabled() const { return true;}
 #endif
 
-/****************************************************************************************/
-
 int Configurator::init (int argc, ACE_TCHAR *argv[])
 {
 	FuncEntryExit<void> fee(this, L"init");
@@ -378,8 +376,6 @@ int Configurator::init (int argc, ACE_TCHAR *argv[])
 	int ret = initSubService(argc, argv);
 	if (ret)
 		return ret;
-
-	UNS_DEBUG(L"Configurator, 0x%x\n", this);
 
 	//add to the map, services that demand special test before loading
 	//the test will be performed in the start of the service (is StartAceService())
@@ -422,14 +418,23 @@ int Configurator::init (int argc, ACE_TCHAR *argv[])
 int Configurator::fini (void)
 {
 	FuncEntryExit<void> fee(this, L"fini");
+	
+	// Call base class fini() first for common cleanup
+	int ret = GmsSubService::fini();
+	
+	// Clear Configurator's specific task queue
+	while (!m_nextTasks.empty()) {
+		m_nextTasks.pop();
+	}
+	
+	// Clean up Configurator-specific singletons
 	theDependencyManager::close();
 	theLoadedServices::close();
-	//There can be crash in Linux on shut-down if messages are left in the queue.
-	//Clean-up messages in the queue to ensure that memory is released orderly.
-	this->reactor()->purge_pending_notifications(this);
+
 	UNS_DEBUG(L"Success\n");
-	return 0;
+	return ret;
 }
+
 
 void Configurator::HandleAceMessage(int type, MessageBlockPtr &mbPtr)
 {
@@ -532,12 +537,13 @@ bool Configurator::StartAceService(const ACE_TString &serviceName)
 
 bool Configurator::StopAceService(const ACE_TString &serviceName)
 {
-	FuncEntryExit<void> fee(this, L"StopAceService");
+	bool res = false;
+	FuncEntryExit<decltype(res)> fee(this, L"StopAceService", res);
 
 	if (!theLoadedServices::instance()->IsLoaded(serviceName))
 	{
 		UNS_ERROR(L"Trying to stop not running service %s\n", serviceName.c_str());
-		return false;
+		return res;
 	}
 
 	if (theLoadedServices::instance()->IsActive(serviceName))
@@ -548,13 +554,16 @@ bool Configurator::StopAceService(const ACE_TString &serviceName)
 		mbPtr->data_block(new StopServiceDataBlock(m_meiEnabled));
 		mbPtr->msg_type(MB_STOP_SERVICE);
 		mbPtr->msg_priority(5); //This message should be with the highest priority
-		return m_mainService->sendMessage(serviceName,mbPtr);
+		res = m_mainService->sendMessage(serviceName, mbPtr);
+		UNS_DEBUG(L"sendMessage stop service %d\n", res);
+		return res;
 	}
 
 	//brutally killing - the service is loaded but not active
 	FiniAceService(serviceName);
 
-	return true;
+	res = true;
+	return res;
 }
 
 bool Configurator::SuspendAceService(const ACE_TString &serviceName)
@@ -589,7 +598,7 @@ int Configurator::handle_timeout (const ACE_Time_Value &current_time,const void 
 		MessageBlockPtr mbPtr(new ACE_Message_Block(), deleteMessageBlockPtr);
 		mbPtr->msg_type(MB_DEFERRED_RESUME);
 		mbPtr->msg_priority(4);//priority higher than other messages (except stop service).
-		this->putq(mbPtr->duplicate());
+		GmsService::putq_timeout(this, name(), mbPtr);
 		return -1;
 	}
 	if (m_scanningNum<NUM_RETRIES)
@@ -599,7 +608,7 @@ int Configurator::handle_timeout (const ACE_Time_Value &current_time,const void 
 	}
 	else
 	{
-		ACE_Reactor::instance()->cancel_timer (this);
+		gmsSubServiceReactor.cancel_timer(this);
 		StopAllServices();
 		TaskCompleted();
 	}
@@ -684,7 +693,7 @@ void Configurator::ScanConfiguration()
 {
 	FuncEntryExit<void> fee(this, L"ScanConfiguration");
 	ACE_Time_Value interval(5);
-	ACE_Reactor::instance()->schedule_timer (this, 0,interval,interval);
+	gmsSubServiceReactor.schedule_timer(this, 0, interval, interval);
 
 	try
 	{
@@ -746,7 +755,10 @@ void Configurator::ScanConfiguration()
 		if(batch.Execute(servicesNames) != ServicesBatchCommand::ExecuteCommandResult::SUCCESS)
 			TaskCompleted();
 
-		ACE_Reactor::instance()->cancel_timer (this);
+		if(theLoadedServices::instance()->IsLoaded(LAST_SERVICE)) // in case all services are loaded, and we are trying to load them again (for example by getting driver load event), we must mark task completed
+			TaskCompleted();
+
+		gmsSubServiceReactor.cancel_timer(this);
 	}
 	catch (std::exception& e)
 	{
@@ -759,7 +771,7 @@ void Configurator::ScanConfiguration()
 			UNS_ERROR("%W\n", err.c_str());
 			GMSExternalLogger::instance().WarningLog(ACE_TEXT("LMS cannot connect to Intel(R) MEI driver"));
 			UNS_DEBUG(L"MEI state: disabled\n");
-			ACE_Reactor::instance()->cancel_timer (this);//wait for MEI enable
+			gmsSubServiceReactor.cancel_timer(this);//wait for MEI enable
 			m_meiEnabled = false;
 			TaskCompleted();
 		}
@@ -967,6 +979,13 @@ int Configurator::UpdateConfiguration(const ChangeConfiguration *conf)
 					break;
 				}
 
+				// Before adding the PFW_LAST_SERVICE to servicesNames, Make sure it is stopped.
+				// As if it is "running" already, its "start" won't be called and therefor TaskCompleted will not be called.
+				if (theLoadedServices::instance()->IsLoaded(WAITING_FOR_PFW_LAST_SERVICE))
+				{
+					// brutally killing, not using StopAceService that may fail.
+					FiniAceService(WAITING_FOR_PFW_LAST_SERVICE);
+				}
 				servicesNames.push_back(WAITING_FOR_PFW_LAST_SERVICE); //When it will "start" - TaskCompleted() will be called
 
 				NamesList::const_iterator endIt = servicesNames.end();
@@ -1101,7 +1120,7 @@ void Configurator::CancelDeferredResumeTimer()
 	if (deferredResumeTimerId_ == -1)
 		return;
 
-	ACE_Reactor::instance()->cancel_timer(deferredResumeTimerId_);
+	gmsSubServiceReactor.cancel_timer(deferredResumeTimerId_);
 	deferredResumeTimerId_ = -1;
 	return;
 }
@@ -1175,7 +1194,7 @@ void Configurator::ExecuteTask(MessageBlockPtr& mbPtr)
 
 				if (m_fwVer.FTMajor < 12) //else - do nothing. the ResumeAllServices() was called by MB_CONFIGURATION_RESUME
 				{
-					if (deferredResumeTimerId_ != -1 && ACE_Reactor::instance()->cancel_timer(deferredResumeTimerId_)) // login before deferredResumeTimerId_ is timed-out
+					if (deferredResumeTimerId_ != -1 &&  gmsSubServiceReactor.cancel_timer(deferredResumeTimerId_)) // login before deferredResumeTimerId_ is timed-out
 					{
 						deferredResumeTimerId_ = -1;
 						ResumeAllServices();
@@ -1214,8 +1233,7 @@ void Configurator::ExecuteTask(MessageBlockPtr& mbPtr)
 						// However there are other process (such MFA) which also want to run flows on Resume against FW and
 						// These processes are very sensitive to any delay in the communications.
 						// So deferring LMS resume for some period of time event solves that problem
-
-						deferredResumeTimerId_ = ACE_Reactor::instance()->schedule_timer (this, &deferredResumeTimerId_, ACE_Time_Value(90), ACE_Time_Value::zero); // will trigger MB_DEFERRED_RESUME event (when timeout)
+						deferredResumeTimerId_ = gmsSubServiceReactor.schedule_timer(this, &deferredResumeTimerId_, ACE_Time_Value(90), ACE_Time_Value::zero); // will trigger MB_DEFERRED_RESUME event (when timeout)
 					}
 
 					TaskCompleted();
@@ -1245,7 +1263,7 @@ void Configurator::ExecuteTask(MessageBlockPtr& mbPtr)
 					MessageBlockPtr pfwPtr(new ACE_Message_Block(), deleteMessageBlockPtr);
 					pfwPtr->data_block(new ChangeConfiguration(CONFIGURATION_TYPE::PFW_ENABLE_CONF, 1));
 					pfwPtr->msg_type(MB_CONFIGURATION_CHANGE);
-					this->putq(pfwPtr->duplicate());
+					GmsService::putq_timeout(this, name(), pfwPtr);
 
 					TaskCompleted();
 				}break;
@@ -1312,7 +1330,7 @@ void Configurator::TaskCompleted()
 	MessageBlockPtr mbPtr(new ACE_Message_Block(), deleteMessageBlockPtr);
 	mbPtr->data_block(new ACE_Data_Block());
 	mbPtr->msg_type(MB_TASK_COMPLETED);
-	this->putq(mbPtr->duplicate());
+	GmsService::putq_timeout(this, name(), mbPtr);
 }
 
 LMS_SUBSERVICE_DEFINE(CONFIGURATOR, Configurator)

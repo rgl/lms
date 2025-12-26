@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2009-2024 Intel Corporation
+ * Copyright (C) 2009-2025 Intel Corporation
  */
 /*++
 
@@ -862,15 +862,15 @@ unsigned int PTHI_Commands::GetCertificateHash(std::vector<HashEntry> &hashlist)
 		for (; itr != endItr; ++itr)
 		{
 			try {
-				GetCertificateHashEntryCommand command(*itr);
-				GET_CERTIFICATE_HASH_ENTRY_RESPONSE response = command.getResponse();
+				GetCertificateHashEntryCommand entry_command(*itr);
+				GET_CERTIFICATE_HASH_ENTRY_RESPONSE entry_response = entry_command.getResponse();
 				HashEntry entry;
-				entry.Description = ToWStr(response.Name);
-				entry.IsDefault = response.IsDefault;
-				entry.Enabled = response.IsActive;
-				entry.HashType = response.HashAlgorithm;
-				memcpy_s(entry.HashData, sizeof(entry.HashData), response.CertificateHash, sizeof(response.CertificateHash));
-				hashlist.push_back(entry);
+				entry.Description = ToWStr(entry_response.Name);
+				entry.IsDefault = entry_response.IsDefault;
+				entry.Enabled = entry_response.IsActive;
+				entry.HashType = entry_response.HashAlgorithm;
+				memcpy_s(entry.HashData, sizeof(entry.HashData), entry_response.CertificateHash, sizeof(entry_response.CertificateHash));
+				hashlist.push_back(std::move(entry));
 			}
 			catch (AMTHIErrorException& e)
 			{
@@ -984,8 +984,8 @@ unsigned int PTHI_Commands::GetPortSettings(std::vector<EthernetPortEntry> &ethe
 				lanSettings.MacAddress[3], lanSettings.MacAddress[4], lanSettings.MacAddress[5]);
 			entry.MACAddress = sMacAddress;
 			entry.LinkIsUp = (lanSettings.LinkStatus == 1) ? true : false;
-			entry.DHCPEnabled = lanSettings.DhcpEnabled;
-			ethernetPortList.push_back(entry);
+			entry.DHCPEnabled = (lanSettings.DhcpEnabled == AMT_TRUE);
+			ethernetPortList.push_back(std::move(entry));
 			rc = 0;
 		}
 		catch (AMTHIErrorException& e)
@@ -1012,8 +1012,8 @@ unsigned int PTHI_Commands::GetPortSettings(std::vector<EthernetPortEntry> &ethe
 					lanSettings.MacAddress[3], lanSettings.MacAddress[4], lanSettings.MacAddress[5]);
 				entry.MACAddress = sMacAddress;
 				entry.LinkIsUp = (lanSettings.LinkStatus == 1) ? true : false;
-				entry.DHCPEnabled = lanSettings.DhcpEnabled;
-				ethernetPortList.push_back(entry);
+				entry.DHCPEnabled = (lanSettings.DhcpEnabled == AMT_TRUE);
+				ethernetPortList.push_back(std::move(entry));
 				rc = 0;
 			}
 			catch (AMTHIErrorException& e)
@@ -1058,7 +1058,7 @@ unsigned int PTHI_Commands::GetLocalSystemAccount(LOCAL_SYSTEM_ACCOUNT *LocalAcc
 
 		if (response.Password.length() < CFG_MAX_ACL_PWD_LENGTH)
 		{
-			LocalAccount->Password = response.Password;
+			LocalAccount->Password = std::move(response.Password);
 		}
 		rc = 0;
 	}

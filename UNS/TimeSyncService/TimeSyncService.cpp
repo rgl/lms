@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2010-2024 Intel Corporation
+ * Copyright (C) 2010-2025 Intel Corporation
  */
 #include "TimeSyncService.h"
 #include "TimeSynchronizationClient.h"
@@ -35,10 +35,7 @@ TimeSyncService::init (int argc, ACE_TCHAR *argv[])
 	m_needToSyncOnResume = false;
 	m_syncRequiredButNoPfw = false;
 	ACE_Time_Value interval (ms_Interval);
-	ACE_Reactor::instance()->schedule_timer (this,
-											0,
-											ACE_Time_Value::zero,
-											interval);
+	gmsSubServiceReactor.schedule_timer(this, 0, ACE_Time_Value::zero, interval);
 	return 0;
 }
 
@@ -46,8 +43,9 @@ int
 TimeSyncService::fini (void)
 {
 	UNS_DEBUG(L"TimeSync service stopped\n");
-	ACE_Reactor::instance()->cancel_timer (this);
-	return 0;
+	
+	// Call base class fini for proper cleanup
+	return GmsSubService::fini();
 }
 
 
@@ -128,7 +126,7 @@ TimeSyncService::handle_timeout (const ACE_Time_Value &current_time,const void *
 	MessageBlockPtr mbPtr(new ACE_Message_Block(), deleteMessageBlockPtr);
 	mbPtr->data_block(new ACE_Data_Block());
 	mbPtr->msg_type(MB_TIMER_EXPIRED);
-	this->putq(mbPtr->duplicate());
+	GmsService::putq_timeout(this, name(), mbPtr);
 
 	return 0;
 }

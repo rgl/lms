@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2010-2023 Intel Corporation
+ * Copyright (C) 2010-2025 Intel Corporation
  */
 #include "PortForwardingService.h"
 
@@ -18,6 +18,7 @@
 #include "UNSEventsDefinition.h"
 #include "Protocol.h"
 #include "GMSExternalLogger.h"
+#include <thread>
 
 namespace 
 {
@@ -241,6 +242,9 @@ public:
 			}		
 		}
 
+		// Wait 0.5 second, for reducing pressure on PFW channel when closing the thread
+		std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
 		m_father->BroadcastFailure(publishFailure);
 		m_prot.Deinit();
 		return 0;
@@ -304,9 +308,18 @@ PortForwardingService::init (int argc, ACE_TCHAR *argv[])
 int
 PortForwardingService::fini (void)
 {
+	// Set shutdown flag in LMEConnection
+	if (m_lmsMainThread) {
+		m_lmsMainThread->m_prot.GetLMEConnection().SetShutdownInProgress(true);
+	}
+	
+	// Call base class fini first to set shutdown flag and cancel timers
+	int ret = GmsSubService::fini();
+	
 	delete m_lmsMainThread;
+	
 	UNS_DEBUG(L"PFWS: finalized\n");
-	return 0;
+	return ret;
 }
 
 int PortForwardingService::suspend() 
@@ -423,18 +436,23 @@ void PortForwardingService::AddDebugToMessageLog(const char* message)
 
 void PortForwardingService::OnStop()
 {
-	m_lmsMainThread->SetUnregisterDeviceEvents(true);
+	if (m_lmsMainThread) {
+		m_lmsMainThread->m_prot.GetLMEConnection().SetShutdownInProgress(true); // Set shutdown flag in LMEConnection
+		m_lmsMainThread->SetUnregisterDeviceEvents(true);
 
-	ACE_Thread_Manager *mng = ACE_Thread_Manager::instance();
-	if (mng != NULL) {
-		mng->cancel_task(m_lmsMainThread);
+		ACE_Thread_Manager* mng = ACE_Thread_Manager::instance();
+		if (mng != NULL) {
+			mng->cancel_task(m_lmsMainThread);
 
-		m_lmsMainThread->m_prot.SignalSelect(); //causes m_lmsMainThread to get out from "select" to see it was asked to cancel
-		m_lmsMainThread->m_initProtStop.signal();
-		m_lmsMainThread->wait();
+			m_lmsMainThread->m_prot.SignalSelect(); //causes m_lmsMainThread to get out from "select" to see it was asked to cancel
+			m_lmsMainThread->m_initProtStop.signal();
+			m_lmsMainThread->wait();
+		}
 	}
+
 	m_mainService->SetHeciEventCB(NULL, NULL, NULL);
 	closeSubService();
+	m_serviceIsClosed = true;
 }
 
 

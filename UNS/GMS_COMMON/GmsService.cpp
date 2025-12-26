@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2010-2024 Intel Corporation
+ * Copyright (C) 2010-2025 Intel Corporation
  */
 
 #include "global.h"
@@ -44,15 +44,14 @@ GmsService::GmsService(void) : stopped(false), loading(false),
 	ACE_Service_Repository *repo = ACE_Service_Repository::instance();
 	if (repo == NULL)
 		throw std::runtime_error("Failed to instantiate ACE_Service_Repository");
-	ACE_Reactor *a_reactor = ACE_Reactor::instance();
-	if (a_reactor == NULL)
-		throw std::runtime_error("Failed to instantiate ACE_Reactor");
-	reactor(a_reactor);
+	
+	reactor(&gmsReactor);
+	water_marks(ACE_IO_Cntl_Msg::SET_HWM, QUEUE_SIZE);
 }
 
 GmsService::~GmsService(void)
 {
-	reactor()->close();
+	gmsReactor.close();
 }
 
 void GmsService::CloseHeciHandle()
@@ -405,7 +404,10 @@ void GmsService::SetSuspend()
 void GmsService::SetStop()
 {
 	UNS_DEBUG(L"GmsService::SetStop()\n");
-	reactor()->end_reactor_event_loop();
+	if (reactor() && !reactor()->reactor_event_loop_done()) {
+		UNS_DEBUG(L"ending reactor loop\n");
+		reactor()->end_reactor_event_loop();
+	}
 }
 
 bool GmsService::GetStopped()
@@ -467,11 +469,11 @@ int GmsService::resume()
 	return 0;
 }
 
-bool GmsService::sendMessage(const ACE_TString &dest, const MessageBlockPtr &mb) const
+bool GmsService::sendMessage(const ACE_TString& dest, const MessageBlockPtr& mb) const
 {
 	UNS_DEBUG(L"GmsService: sending message to %s\n", dest.c_str());
-	const ACE_Service_Type *svc_rec;
-	int i=ACE_Service_Repository::instance ()->find (dest.c_str(), &svc_rec);
+	const ACE_Service_Type* svc_rec;
+	int i = ACE_Service_Repository::instance()->find(dest.c_str(), &svc_rec);
 	if (i != 0)
 	{
 		if (i == -2) // the subService is suspended
@@ -480,24 +482,42 @@ bool GmsService::sendMessage(const ACE_TString &dest, const MessageBlockPtr &mb)
 		}
 		else
 			UNS_ERROR(L"The desired service doesn't exists\n");
-		
+
 		return false;
 	}
 
 	//the subService is active
 	UNS_DEBUG(L"GmsService: sending message - found destination service\n");
-	const ACE_Service_Type_Impl *type = svc_rec->type (); 
-	if (type == 0) return false; 
+	const ACE_Service_Type_Impl* type = svc_rec->type();
+	if (type == 0)
+	{
+		UNS_ERROR(L"GmsService: sending message - service type is null\n");
+		return false;
+	}
 
-	ACE_Service_Object *obj = static_cast<ACE_Service_Object *>(type->object ()); 
-	ACE_Task *subServiceTask = dynamic_cast<ACE_Task*>(obj);
+	ACE_Service_Object* obj = static_cast<ACE_Service_Object*>(type->object());
+	ACE_Task* subServiceTask = dynamic_cast<ACE_Task*>(obj);
 	if (subServiceTask == nullptr)
 	{
 		UNS_ERROR(L"GmsService: sending message - Object is not an ACE_Task\n");
 		return false;
 	}
-	subServiceTask->putq(mb->duplicate()); 
 
+	bool res = putq_timeout(subServiceTask, dest, mb);
+	UNS_DEBUG(L"GmsService: putq_timeout result: %d\n", res);
+
+	return res;
+}
+
+bool GmsService::putq_timeout(ACE_Task *task, const ACE_TString& name, const MessageBlockPtr& mb)
+{
+	ACE_Time_Value tv = task->gettimeofday() + ACE_Time_Value(5); /* 5 seconds relative to current time */
+	int i = task->putq(mb->duplicate(), &tv);
+	if (i == -1)
+	{
+		UNS_ERROR(L"%s: sending message - queue is full\n", name.c_str());
+		return false;
+	}
 	return true;
 }
 

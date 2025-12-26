@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2010-2023 Intel Corporation
+ * Copyright (C) 2010-2025 Intel Corporation
  */
 #ifndef __SUBSERVICE_H_
 #define __SUBSERVICE_H_
@@ -17,8 +17,29 @@
 class GmsSubService : public ACE_Task<ACE_MT_SYNCH>
 {
 public:
+	GmsSubService() :notifier_(0, NULL, ACE_Event_Handler::WRITE_MASK), m_mainService(nullptr), m_serviceIsClosed(false)
+	{
+		water_marks(ACE_IO_Cntl_Msg::SET_HWM, QUEUE_SIZE);
+	}
 
-	GmsSubService() :notifier_(0, NULL, ACE_Event_Handler::WRITE_MASK), m_mainService(nullptr), m_serviceIsClosed(false) {}
+	GmsSubService(const GmsSubService&) = delete; // Prevent copy construction
+	GmsSubService& operator=(const GmsSubService&) = delete; // Prevent assignment operator
+
+	virtual ~GmsSubService()
+	{
+		// Clear message queue before destroying reactor
+		ACE_Message_Block *mb = nullptr;
+		while (!this->msg_queue()->is_empty()) {
+			if (this->getq(mb, (ACE_Time_Value*)&ACE_Time_Value::zero) != -1 && mb != nullptr) {
+				mb->release();
+				mb = nullptr;
+			} else {
+				break;
+			}
+		}
+		
+		gmsSubServiceReactor.close();
+	}
 
 	virtual int init(int argc, ACE_TCHAR *argv[]);
 
@@ -27,6 +48,8 @@ public:
 	virtual int suspend();
 
 	virtual int resume(); // this base implementation must be called by all derived services
+
+	virtual int svc(void);
 
 	//please don't reimplement
 	int handle_output(ACE_HANDLE fd = ACE_INVALID_HANDLE);
@@ -50,6 +73,7 @@ protected:
 
 	virtual const ACE_TString name() = 0;
 
+	ACE_Reactor gmsSubServiceReactor;
 	ACE_Reactor_Notification_Strategy notifier_;
 	GmsService* m_mainService;
 	// This indicates that the service is in a closing process
@@ -61,6 +85,7 @@ protected:
 	using FuncEntryExit = FuncEntryExit_<T, GmsSubService>;
 private:
 	void sendStatusChanged(SERVICE_STATUS_TYPE type);
+	const size_t QUEUE_SIZE = 64 * 1024; /* 64K */
 };
 
 #define LMS_SUBSERVICE_DEFINE(_export_, _name_) \
