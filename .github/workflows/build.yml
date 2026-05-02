@@ -39,7 +39,7 @@ jobs:
             mv "$p" "${p/-Linux\.deb/-${{ matrix.image_name }}-${{ matrix.image_tag }}.deb}"
           done
       - name: Archive
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: artifacts-${{ matrix.image_name }}-${{ matrix.image_tag }}
           path: |
