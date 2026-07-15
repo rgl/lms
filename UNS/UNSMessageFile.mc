@@ -1,5 +1,5 @@
 ;//  SPDX-License-Identifier: Apache-2.0
-;//  Copyright (C) Intel Corporation, 2003 - 2024.
+;//  Copyright (C) Intel Corporation, 2003 - 2026.
 ;//
 ;//  File:       UNSEventsCnf.mc 
 ;//
@@ -505,6 +505,86 @@ Severity=Warning
 SymbolicName=FWCIRAWORKAROUND_FAILURE
 Language=All
 W/A for User Initiated Connection Failed
+.
+
+MessageId=2130
+Facility=Application
+Severity=Informational
+SymbolicName=FWCIRAWORKAROUND_NOTACTIVE
+Language=All
+W/A for User Initiated Connection not activated (%1)
+.
+
+MessageId=2131
+Facility=Application
+Severity=Informational
+SymbolicName=PROVISIONING_STATE_PRE
+Language=All
+Intel(R) ME firmware is not provisioned
+.
+
+MessageId=2132
+Facility=Application
+Severity=Informational
+SymbolicName=PROVISIONING_STATE_IN
+Language=All
+Intel(R) ME firmware provision is in progress
+.
+
+MessageId=2133
+Facility=Application
+Severity=Informational
+SymbolicName=PROVISIONING_STATE_POST
+Language=All
+Intel(R) ME firmware is provisioned
+.
+
+MessageId=2134
+Facility=Application
+Severity=Informational
+SymbolicName=FIRMWARE_RESET
+Language=All
+Intel(R) ME firmware was reset
+.
+
+MessageId=2135
+Facility=Application
+Severity=Informational
+SymbolicName=USER_CONSENT_GRANTED
+Language=All
+User consent was granted
+.
+
+MessageId=2136
+Facility=Application
+Severity=Informational
+SymbolicName=USER_CONSENT_ENDED
+Language=All
+The user consent process ended
+.
+
+MessageId=2137
+Facility=Application
+Severity=Informational
+SymbolicName=RCS_TUNNEL_CLOSE
+Language=All
+Intel(R) ME Client Initiated Remote Access (CIRA) session disconnected
+.
+
+MessageId=2138
+Facility=Application
+Severity=Informational
+SymbolicName=RCS_TUNNEL_OPEN
+Language=All
+Intel(R) ME Client Initiated Remote Access (CIRA) session connected
+.
+
+MessageId=2139
+Facility=Application
+Severity=Informational
+SymbolicName=WLAN_LINK_IS_DOWN
+Language=All
+Intel(R) ME WLAN Link is down
 .
 
 ;//***********************End of Event Definitions***********************

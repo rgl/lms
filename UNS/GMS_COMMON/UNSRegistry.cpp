@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2009-2019 Intel Corporation
+ * Copyright (C) 2009-2026 Intel Corporation
  */
 /*++
 
@@ -13,7 +13,6 @@
 #include <atlbase.h>
 #ifdef _DEBUG
 #include "global.h"
-#include "Is64BitOs.h"
 
 bool GetFromRegistry(const LmsRegStr &folder, const LmsRegStr &key, WCHAR *val, size_t size)
 {
@@ -51,42 +50,46 @@ bool GetFromRegistry(const LmsRegStr &folder, const LmsRegStr &key, wchar_t* val
 	if (val == NULL)
 		return false;
 
-	REGSAM RegSAM = KEY_READ;
-	if (Is64BitOS())
-		  RegSAM |= KEY_WOW64_64KEY;
 	HKEY hKey;
 	std::wstring szRegPath(LMS_REG);
 	std::wstring szRegPathBackup(LMS_REG_BACKUP);
 	bool rc = false;
 	DWORD type;
+	LSTATUS ret;
 
 	szRegPath +=folder;
 	szRegPathBackup += folder;
 
-	if( ERROR_SUCCESS == RegOpenKeyEx(HKEY_LOCAL_MACHINE, szRegPath.c_str(), 0, RegSAM, &hKey) )
+	if (ERROR_SUCCESS == (ret = RegOpenKeyEx(HKEY_LOCAL_MACHINE, szRegPath.c_str(), 0, KEY_READ | KEY_WOW64_64KEY, &hKey)))
 	{
-		if (ERROR_SUCCESS == RegQueryValueExW(hKey, key.c_str(), NULL, &type, (LPBYTE)val, valsz))
+		if (ERROR_SUCCESS == (ret = RegQueryValueExW(hKey, key.c_str(), NULL, &type, (LPBYTE)val, valsz)))
 		{
 			rc = true;
 		}
 		else
-			UNS_ERROR(L"RegQueryValueEx %W failed lastErr=%d\n", key.c_str(), GetLastError());
+		{
+			UNS_ERROR(L"RegQueryValueEx %W failed ret = %d\n", key.c_str(), ret);
+		}
 
 		RegCloseKey(hKey);
 	}
-	else if (ERROR_SUCCESS == RegOpenKeyEx(HKEY_LOCAL_MACHINE, szRegPathBackup.c_str(), 0, RegSAM, &hKey))
+	else if (ERROR_SUCCESS == (ret = RegOpenKeyEx(HKEY_LOCAL_MACHINE, szRegPathBackup.c_str(), 0, KEY_READ | KEY_WOW64_64KEY, &hKey)))
 	{
-		if (ERROR_SUCCESS == RegQueryValueExW(hKey, key.c_str(), NULL, &type, (LPBYTE)val, valsz))
+		if (ERROR_SUCCESS == (ret = RegQueryValueExW(hKey, key.c_str(), NULL, &type, (LPBYTE)val, valsz)))
 		{
 			rc = true;
 		}
 		else
-			UNS_ERROR(L"RegQueryValueEx %W failed lastErr=%d\n", key.c_str(), GetLastError());
+		{
+			UNS_ERROR(L"RegQueryValueEx %W failed ret = %d\n", key.c_str(), ret);
+		}
 
 		RegCloseKey(hKey);
 	}
 	else
-		UNS_ERROR(L"RegOpenKeyEx %W failed lastErr=%d\n", key.c_str(), GetLastError());
+	{
+		UNS_ERROR(L"RegOpenKeyEx failed ret = %d\n", ret);
+	}
 	return rc;
 }
 

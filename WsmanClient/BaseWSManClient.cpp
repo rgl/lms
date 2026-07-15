@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2009-2023 Intel Corporation
+ * Copyright (C) 2009-2026 Intel Corporation
  */
 /*++
 
@@ -71,6 +71,11 @@ void BaseWSManClient::SetEndpoint()
 			throw std::runtime_error("Can't get local system account");
 	}
 
+	if (m_port == 0)
+	{
+		throw std::runtime_error("No port forwarding port");
+	}
+
 	//Lock WsMan to prevent reentry
 	std::lock_guard<std::mutex> lock(WsManSemaphore());
 		
@@ -79,7 +84,14 @@ void BaseWSManClient::SetEndpoint()
 									  (m_port == AMT_SECURE_PORT),
 									  Intel::WSManagement::DIGEST,
 									  m_defaultUser,
-									  m_defaultPass.Get()));
+									  m_defaultPass.Get(),
+									  std::string(),
+									  std::string(),
+									  std::string(),
+									  false,
+									  std::string(),
+									  std::string(),
+									  true));
 }
 
 bool BaseWSManClient::GetLocalSystemAccount()

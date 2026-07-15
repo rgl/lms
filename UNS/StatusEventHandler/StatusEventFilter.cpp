@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2009-2019 Intel Corporation
+ * Copyright (C) 2009-2026 Intel Corporation
  */
 /*++
 
@@ -75,9 +75,13 @@ StatusEventFilter::defaultInitialization(std::shared_ptr<StatusEventFilter> filt
 		filter->addEvent(EVENT_KVM_DISABLED) &&
 		filter->addEvent(EVENT_KVM_ENABLED) &&
 		filter->addEvent(EVENT_KVM_DATA_CHANNEL) &&
+		filter->addEvent(EVENT_KVM_UNSET_VIRTUAL_DESKTOP_REG_KEY) &&
+		filter->addEvent(EVENT_KVM_SET_VIRTUAL_DESKTOP_REG_KEY) &&
 
 		filter->addEvent(EVENT_SERVICE_RESUME) &&
 		filter->addEvent(EVENT_SERVICE_HECI_DISABLE) &&
+
+		filter->addEvent(EVENT_FIRMWARE_RESET) &&
 
 		filter->addEvent(EVENT_IP_SYNC_DISABLE) &&
 		filter->addEvent(EVENT_IP_SYNC_ENABLE) &&

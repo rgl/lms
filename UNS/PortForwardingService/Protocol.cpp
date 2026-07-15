@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2009-2025 Intel Corporation
+ * Copyright (C) 2009-2026 Intel Corporation
  */
 /*++
 
@@ -122,7 +122,7 @@ namespace
 	}
 }
 
-Protocol::Protocol() : _lme(true), _sockets_active(false), _signalPipe(), _rxSocketBuffer(0), _rxSocketBufferSize(0),
+Protocol::Protocol() : _lme(true), _sockets_active(false), _signalPipe(),
 					   _eventLogWrn(nullptr), _eventLogDbg(nullptr), _eventLogParam(nullptr), _clientNotFound(false)
 {
 	_handshakingStatus = VERSION_HANDSHAKING::NOT_INITIATED;
@@ -178,15 +178,14 @@ bool Protocol::Init(InitParameters & params)
 
 	size_t bufSize = _lme.GetBufferSize() - sizeof(APF_CHANNEL_DATA_MESSAGE);
 	if (bufSize > 0) {
-		_rxSocketBuffer = new char[bufSize];
-		_rxSocketBufferSize = bufSize;
+		_rxSocketBuffer.resize(bufSize);
 	}
 	else {
 		Deinit();
 		return res;
 	}
 
-	res = _checkRemoteSupport(true);
+	res = _checkRemoteSupport();
 
 	return res;
 }
@@ -365,17 +364,6 @@ void Protocol::Deinit()
 				}
 			}
 			_openPorts.clear();
-		}
-
-		{
-			std::lock_guard<std::mutex> l(_deleteLock);
-			if (_rxSocketBuffer != NULL)
-			{
-				delete[] _rxSocketBuffer;
-				_rxSocketBuffer = NULL;
-				_rxSocketBufferSize = 0;
-			}
-
 		}
 		{
 			std::lock_guard<std::mutex> l(_versionLock);
@@ -890,7 +878,7 @@ int Protocol::Select()
 
 	FD_ZERO(&rset);
 
-	int _serverSignalSocket = (int)_signalPipe.read_handle();
+	SOCKET _serverSignalSocket = (SOCKET)_signalPipe.read_handle();
 
 	FD_SET(_serverSignalSocket, &rset);
 	if ((int)_serverSignalSocket > fdCount) {
@@ -1015,17 +1003,17 @@ int Protocol::_rxFromSocket(SOCKET s)
 
 	int res = 0;
 
-	int len = std::min(c->GetTxWindow(), (unsigned int) _rxSocketBufferSize);
-	res = recv(s, _rxSocketBuffer, len, 0);
+	int len = std::min(c->GetTxWindow(), (unsigned int)_rxSocketBuffer.size());
+	res = recv(s, _rxSocketBuffer.data(), len, 0);
 	if (res > 0) {
 		// send data to LME
 		UNS_TRACE(L"Socket[%d] ==>: %d bytes\n", (int)s, res);
 #ifdef _DEBUG
-		std::string dbg_dump(_rxSocketBuffer, _rxSocketBuffer + res);
+		std::string dbg_dump(_rxSocketBuffer.data(), _rxSocketBuffer.data() + res);
 		UNS_TRACE(L"-----------------------From application---------------------------\n%C\n-----------------------End from application---------------------------\n\n",
 			dbg_dump.c_str());
 #endif // _DEBUG
-		_lme.ChannelData(c->GetRecipientChannel(), res, (unsigned char *)_rxSocketBuffer);
+		_lme.ChannelData(c->GetRecipientChannel(), res, _rxSocketBuffer.data());
 		goto out;
 	} else if (res == 0) {
 		// connection closed
@@ -1437,9 +1425,6 @@ void Protocol::_LmeReceive(void *buffer, unsigned int len, int *status)
 								}
 							}
 
-
-
-
 							if (failure == true) {
 								_lme.Disconnect(APF_DISCONNECT_PROTOCOL_ERROR);
 								Deinit();
@@ -1458,18 +1443,15 @@ void Protocol::_LmeReceive(void *buffer, unsigned int len, int *status)
 							}
 
 							if (!failure) {
+								UNS_TRACE(L"Listening at port %d addr:%C at %C interface.\n", tcpForwardRequestMessage->Port,
+									tcpForwardRequestMessage->Address.c_str(), (cb == _isLocalCallback) ? "local" : "remote");
 								if (cb == _isLocalCallback) {
-
-									UNS_TRACE(L"Listening at port %d addr:%C at %C interface.\n", tcpForwardRequestMessage->Port, 
-										tcpForwardRequestMessage->Address.c_str(),
-										(cb == _isLocalCallback)?L"local":L"remote");
-
 									// Now it only updates for IPv4
 									_updateIPFQDN(tcpForwardRequestMessage->Address);
 
 								} else {
 									UNS_DEBUG(L"--------->remote tunnel created - going to check remote support\n");
-									_checkRemoteSupport(true);
+									_checkRemoteSupport();
 								}
 							}
 						}
@@ -1575,7 +1557,7 @@ void Protocol::_LmeReceive(void *buffer, unsigned int len, int *status)
 								return;
 							}
 
-							int count = send(s, (char *)udpSendToMessage->Data.data(), udpSendToMessage->Data.size(), 0);
+							int count = send(s, (char *)udpSendToMessage->Data.data(), static_cast<int>(udpSendToMessage->Data.size()), 0);
 							UNS_TRACE(L"Sent UDP data: %d bytes of %d.\n", count, udpSendToMessage->Data.size());
 #ifdef _DEBUG
 							std::string dbg_dump(udpSendToMessage->Data.begin(), udpSendToMessage->Data.end());
@@ -1825,8 +1807,8 @@ void Protocol::_LmeReceive(void *buffer, unsigned int len, int *status)
 						}
 
 						bool request_close = false;
-						int count = it->second->ProcessRx((char *)channelDataMessage->Data.data(), channelDataMessage->Data.size(), request_close);
-						UNS_TRACE(L"Sent %d bytes of %d from AMT to channel %d with socket %d.\n", 
+						size_t count = it->second->ProcessRx((char *)channelDataMessage->Data.data(), channelDataMessage->Data.size(), request_close);
+						UNS_TRACE(L"Sent %B bytes of %B from AMT to channel %u with socket %d.\n",
 							count, channelDataMessage->Data.size(), channelDataMessage->RecipientChannel,
 							it->second->GetSocket());
 #ifdef _DEBUG
@@ -1922,38 +1904,36 @@ void Protocol::_AdapterCallback(void *param, SuffixMap &localDNSSuffixes)
 
 }
 
-bool Protocol::_checkRemoteSupport(bool requestDnsFromAmt)
+bool Protocol::_checkRemoteSupport()
 {
-	if (requestDnsFromAmt) {
-		try
+	try
+	{
+		Intel::MEI_Client::AMTHI_Client::GetDNSSuffixListCommand getDNSSuffixListCommand;
+		Intel::MEI_Client::AMTHI_Client::GET_DNS_SUFFIX_LIST_RESPONSE response = getDNSSuffixListCommand.getResponse();
+		std::lock_guard<std::mutex> l(_AMTDNSLock);
+		_AMTDNSSuffixes.clear();
+		size_t n = response.HashHandles.size();
+		if (n > 0)
 		{
-			Intel::MEI_Client::AMTHI_Client::GetDNSSuffixListCommand getDNSSuffixListCommand;
-			Intel::MEI_Client::AMTHI_Client::GET_DNS_SUFFIX_LIST_RESPONSE response = getDNSSuffixListCommand.getResponse();
-			std::lock_guard<std::mutex> l(_AMTDNSLock);
-			_AMTDNSSuffixes.clear();
-			size_t n = response.HashHandles.size();
-			if (n > 0)
+			vector<string> dnsSuffixes;
+			string ss;
+			for (size_t i = 0; i < n; i++)
 			{
-				vector<string> dnsSuffixes;
-				string ss;
-				for (size_t i = 0; i < n; i++)
+				char c = response.HashHandles[i];
+				if (c == '\0')
 				{
-					char c = response.HashHandles[i];
-					if (c == '\0')
-					{
-						dnsSuffixes.push_back(ss);
-						ss.clear();
-					}
-					else
-						ss += c;
+					dnsSuffixes.push_back(ss);
+					ss.clear();
 				}
-				_AMTDNSSuffixes.assign(dnsSuffixes.begin(), dnsSuffixes.end());
+				else
+					ss += c;
 			}
+			_AMTDNSSuffixes.assign(dnsSuffixes.begin(), dnsSuffixes.end());
 		}
-		catch(Intel::MEI_Client::MEIClientException e)
-		{
-			UNS_ERROR(L"_checkRemoteSupport: GetDNSSuffixListCommand failed: %C\n", e.what());
-		}
+	}
+	catch(const Intel::MEI_Client::MEIClientException &e)
+	{
+		UNS_ERROR(L"_checkRemoteSupport: GetDNSSuffixListCommand failed: %C\n", e.what());
 	}
 
 	return _updateEnterpriseAccessStatus(AdapterListInfo::GetLocalDNSSuffixList(), true);

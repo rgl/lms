@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2009-2025 Intel Corporation
+ * Copyright (C) 2009-2026 Intel Corporation
  */
 /*++
 
@@ -155,7 +155,7 @@ HRESULT CheckCredentials(DATA_NAME funcName)
 	}
 
 	HRESULT hr = S_OK;
-	DWORD dwImp = 0;
+	SECURITY_IMPERSONATION_LEVEL dwImp = SecurityAnonymous;
 	HANDLE hThreadTok = NULL;
 	DWORD dwBytesReturned;
 	BOOL bRes;
@@ -172,36 +172,43 @@ HRESULT CheckCredentials(DATA_NAME funcName)
 	bRes = OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &hThreadTok);
 	if (bRes == FALSE)
 	{
-		UNS_ERROR(L"Unable to OpenThreadToken (0x%x)", GetLastError());
+		DWORD err = GetLastError();
+		UNS_ERROR(L"Unable to OpenThreadToken (0x%x)\n", err);
 		hr = S_FALSE;//STATUS_SECURITY_PROBLEM;
 		CloseHandle(hThreadTok);
+		CoRevertToSelf();
 		return hr;
 	}
 
 	bRes = ::GetTokenInformation(hThreadTok, TokenImpersonationLevel,
 	                             &dwImp, sizeof(dwImp), &dwBytesReturned);
 
-	if (bRes == FALSE || (dwBytesReturned < sizeof(PTOKEN_USER)))
+	if (bRes == FALSE || (dwBytesReturned < sizeof(dwImp)))
 	{
-		UNS_ERROR(L"Unable to GetTokenInformation - TokenImpersonationLevel(0x%x)", GetLastError());
+		DWORD err = GetLastError();
+		UNS_ERROR(L"Unable to GetTokenInformation - TokenImpersonationLevel(0x%x)\n", err);
 		hr = S_FALSE;//STATUS_SECURITY_PROBLEM;
 		CloseHandle(hThreadTok);
+		CoRevertToSelf();
 		return hr;
 	}
 
 	if ((dwImp != SecurityImpersonation) && (dwImp != SecurityIdentification))
 	{
-		UNS_ERROR(L"Wrong security TokenImpersonationLevel (%d)", dwImp);
+		UNS_ERROR(L"Wrong security TokenImpersonationLevel (%d)\n", dwImp);
 		hr = S_FALSE;//STATUS_SECURITY_NOT_CORRECT;
 		CloseHandle(hThreadTok);
+		CoRevertToSelf();
 		return hr;
 	}
 
 	bRes = ::GetTokenInformation(hThreadTok, TokenGroups, NULL, 0, &dwBytesReturned);
 	if (bRes == FALSE && (GetLastError() != ERROR_INSUFFICIENT_BUFFER))
 	{
-		UNS_ERROR(L"Unable to GetTokenInformation - TokenGroups NULL (0x%x)", GetLastError());
+		DWORD err = GetLastError();
+		UNS_ERROR(L"Unable to GetTokenInformation - TokenGroups NULL (0x%x)\n", err);
 		CloseHandle(hThreadTok);
+		CoRevertToSelf();
 		return S_FALSE;//STATUS_SECURITY_PROBLEM;
 	}
 
@@ -210,9 +217,11 @@ HRESULT CheckCredentials(DATA_NAME funcName)
 	bRes = ::GetTokenInformation(hThreadTok, TokenGroups, groups, dwBytesReturned, &dwBytesReturned);
 	if (bRes == FALSE || dwBytesReturned < sizeof(TOKEN_GROUPS))
 	{
-		UNS_ERROR(L"Unable to GetTokenInformation - TokenGroups (0x%x)", GetLastError());
+		DWORD err = GetLastError();
+		UNS_ERROR(L"Unable to GetTokenInformation - TokenGroups (0x%x)\n", err);
 		hr = S_FALSE;//STATUS_SECURITY_PROBLEM;
 		CloseHandle(hThreadTok);
+		CoRevertToSelf();
 		delete [] groups;
 		return hr;
 	}
@@ -222,7 +231,7 @@ HRESULT CheckCredentials(DATA_NAME funcName)
 	hr = CoRevertToSelf();
 	if (hr != S_OK)
 	{
-		UNS_ERROR(L"CoRevertToSelf (0x%x)", hr);
+		UNS_ERROR(L"CoRevertToSelf (0x%x)\n", hr);
 		hr = S_FALSE;//STATUS_SECURITY_PROBLEM;
 		delete [] groups;
 		return hr;
@@ -836,7 +845,7 @@ STDMETHODIMP CPTHI_Commands::GetIPv6NetworkSettings(SHORT ConnectionType /*WIRED
 		BSTR bstrTmp;
 		try
 		{
-			pSar = SafeArrayCreateVector(VT_BSTR, 0, Response.size());
+			pSar = SafeArrayCreateVector(VT_BSTR, 0, static_cast<ULONG>(Response.size()));
 			for (LONG i = 0 ; i < (LONG)Response.size(); i++)
 			{
 				if (!CreateBSTR(Response[i], &bstrTmp))
@@ -1122,7 +1131,7 @@ STDMETHODIMP CPTHI_Commands::GetConfigurationInfo(SHORT* pControlMode,
 
 		if (!CreateBSTR(CreationTimeStampStr, pCreationTimeStamp))
 			return E_FAIL;
-		ATL::CComSafeArray<BYTE> hashdata(CertHash.size());
+		ATL::CComSafeArray<BYTE> hashdata(static_cast<ULONG>(CertHash.size()));
 		for (size_t i = 0; i < CertHash.size(); i++)
 		{
 			hashdata[(LONG)i] = CertHash[i];
@@ -1545,10 +1554,10 @@ STDMETHODIMP CPTHI_Commands::GetPlatformServiceRecordRaw(SAFEARRAY** binPSR)
 		if (err != Intel::LMS::LMS_ERROR::OK)
 			return LMSError2HRESULT(err);
 
-		ATL::CComSafeArray<BYTE> arr(PSR.size());
+		ATL::CComSafeArray<BYTE> arr(static_cast<ULONG>(PSR.size()));
 		for (size_t i = 0; i < PSR.size(); i++)
 		{
-			arr.SetAt(i, PSR[i]);
+			arr.SetAt(static_cast<LONG>(i), PSR[i]);
 		}
 		*binPSR = arr.Detach();
 

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2009-2025 Intel Corporation
+ * Copyright (C) 2009-2026 Intel Corporation
  */
 /*++
 
@@ -23,9 +23,11 @@ const ACE_TString AGENT_PRSENCE_1(ACE_TEXT("iAMT0002"));	// 0  - The agent has n
 const ACE_TString AGENT_PRSENCE_2(ACE_TEXT("iAMT0003"));	// 0  - The agent has stopped
 const ACE_TString AGENT_PRSENCE_4(ACE_TEXT("iAMT0005"));	// 0  - The agent has expired
 
+const ACE_TString REMOTE_CONNECTIVITY_NOTIFICATION_1(ACE_TEXT("iAMT0036"));
+
 const ACE_TString GENERAL_NOTIFICATION_1(ACE_TEXT("iAMT0050 - 0"));	// 1 160 
-const ACE_TString GENERAL_NOTIFICATION_2(ACE_TEXT("iAMT0055 - 0"));	// 1 11
-const ACE_TString GENERAL_NOTIFICATION_3(ACE_TEXT("iAMT0055 - 1"));	// 1 12
+const ACE_TString GENERAL_NOTIFICATION_2(ACE_TEXT("iAMT0055 - 0"));	// 1 11  - PROVISIONING_STATE_PRE
+const ACE_TString GENERAL_NOTIFICATION_3(ACE_TEXT("iAMT0055 - 1"));	// 1 12  - PROVISIONING_STATE_IN
 const ACE_TString GENERAL_NOTIFICATION_4(ACE_TEXT("iAMT0055 - 2"));	// 1 13  - EVENT_PROVISIONING_STATE_POST
 const ACE_TString GENERAL_NOTIFICATION_5(ACE_TEXT("iAMT0057 - 0"));	// 1 14
 const ACE_TString GENERAL_NOTIFICATION_6(ACE_TEXT("iAMT0055 - 3"));	// 1 15
@@ -69,10 +71,14 @@ const ACE_TString KVM_NOTIFICATION_3(ACE_TEXT("iAMT0052 - 2"));	// 7 72  - EVENT
 const ACE_TString KVM_NOTIFICATION_4(ACE_TEXT("iAMT0059 - 0"));	// 7 73
 const ACE_TString KVM_NOTIFICATION_5(ACE_TEXT("iAMT0059 - 1"));	// 7 74
 const ACE_TString KVM_NOTIFICATION_6(ACE_TEXT("iAMT0052 - 3"));	// 7 76  - EVENT_KVM_DATA_CHANNEL
+const ACE_TString KVM_NOTIFICATION_7(ACE_TEXT("iAMT0052 - 4"));	// 7 77  - EVENT_KVM_UNSET_VIRTUAL_DESKTOP_REG_KEY
+const ACE_TString KVM_NOTIFICATION_8(ACE_TEXT("iAMT0052 - 5"));	// 7 78  - EVENT_KVM_SET_VIRTUAL_DESKTOP_REG_KEY
 
 
 const ACE_TString RCS_NOTIFICATION_5(ACE_TEXT("iAMT0058 - 0"));	// 8 84  - EVENT_RCS_TUNNEL_CLOSE - CIRA_DISCONNECTED
 const ACE_TString RCS_NOTIFICATION_6(ACE_TEXT("iAMT0058 - 1"));	// 8 85
+
+const ACE_TString FW_RESET_NOTIFICATION(ACE_TEXT("iAMT0061")); // Firmware reset
 
 const ACE_TString IPSYNC_NOTIFICATION_1(ACE_TEXT("iAMT0062 - 0"));	// 10 110 - EVENT_IpSync disabled
 const ACE_TString IPSYNC_NOTIFICATION_2(ACE_TEXT("iAMT0062 - 1"));	// 10 111 - EVENT_IpSync enabled
@@ -107,6 +113,8 @@ CimToEventTranslator::CimToEventTranslator()
 	m_eventsMap.bind(AGENT_PRSENCE_1, GmsEventType(CATEGORY_GENERAL, EVENT_AGENT_1));
 	m_eventsMap.bind(AGENT_PRSENCE_2, GmsEventType(CATEGORY_GENERAL, EVENT_AGENT_2));
 	m_eventsMap.bind(AGENT_PRSENCE_4, GmsEventType(CATEGORY_GENERAL, EVENT_AGENT_4));
+
+	m_eventsMap.bind(REMOTE_CONNECTIVITY_NOTIFICATION_1, GmsEventType(CATEGORY_GENERAL, EVENT_REMOTE_CONNECTIVITY_INITIATED, "Remote connectivity initiated")); //User Notification Alert - Remote connectivity initiated
 
 	m_eventsMap.bind(GENERAL_NOTIFICATION_1, GmsEventType(CATEGORY_GENERAL, EVENT_AMT_ENABLE,"Manageability enabled")); //User Notification Alert - Manageability is enabled
 	m_eventsMap.bind(GENERAL_NOTIFICATION_2, GmsEventType(CATEGORY_GENERAL, EVENT_PROVISIONING_STATE_PRE,"Provisioning state PRE")); //User Notification Alert   - Provisioning State Change Notification %1s
@@ -153,8 +161,12 @@ CimToEventTranslator::CimToEventTranslator()
 	 m_eventsMap.bind(KVM_NOTIFICATION_4, GmsEventType(CATEGORY_KVM, EVENT_KVM_DISABLED, "KVM disabled")); //User Notification Alert   - KVM enabled event %1s
 	 m_eventsMap.bind(KVM_NOTIFICATION_5, GmsEventType(CATEGORY_KVM, EVENT_KVM_ENABLED, "KVM enabled")); //User Notification Alert   - KVM enabled event %1s
 	 m_eventsMap.bind(KVM_NOTIFICATION_6, GmsEventType(CATEGORY_KVM, EVENT_KVM_DATA_CHANNEL, "KVM data channel")); //User Notification Alert   - KVM session event %1s
+	 m_eventsMap.bind(KVM_NOTIFICATION_7, GmsEventType(CATEGORY_KVM, EVENT_KVM_UNSET_VIRTUAL_DESKTOP_REG_KEY, "KVM extended display - unset registry key")); //User Notification Alert   - KVM session event %1s
+	 m_eventsMap.bind(KVM_NOTIFICATION_8, GmsEventType(CATEGORY_KVM, EVENT_KVM_SET_VIRTUAL_DESKTOP_REG_KEY, "KVM extended display - set registry key")); //User Notification Alert   - KVM session event %1s
 	 m_eventsMap.bind(RCS_NOTIFICATION_5, GmsEventType(CATEGORY_RCS, EVENT_RCS_TUNNEL_CLOSE, "Client Initiated Remote Access (CIRA) session disconnected")); //User Notification Alert   - Remote Access Connection Notification %1s
 	 m_eventsMap.bind(RCS_NOTIFICATION_6, GmsEventType(CATEGORY_RCS, EVENT_RCS_TUNNEL_OPEN, "Client Initiated Remote Access (CIRA) session connected")); //User Notification Alert   - Remote Access Connection Notification %1s
+	 
+	 m_eventsMap.bind(FW_RESET_NOTIFICATION, GmsEventType(CATEGORY_GENERAL, EVENT_FIRMWARE_RESET, "Firmware reset")); //User Notification Alert - Firmware reset
 	 
 	 m_eventsMap.bind(IPSYNC_NOTIFICATION_1, GmsEventType(CATEGORY_IPSYNC, EVENT_IP_SYNC_DISABLE,"IP synchronization disabled")); //User Notification Alert - IP synchronization disabled
 	 m_eventsMap.bind(IPSYNC_NOTIFICATION_2, GmsEventType(CATEGORY_IPSYNC, EVENT_IP_SYNC_ENABLE,"IP synchronization enabled")); //User Notification Alert - IP synchronization enabled

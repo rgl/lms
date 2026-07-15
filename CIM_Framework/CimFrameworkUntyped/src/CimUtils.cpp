@@ -1,6 +1,6 @@
 //----------------------------------------------------------------------------
 //
-// Copyright (c) Intel Corporation, 2003 - 2009  All Rights Reserved.
+// Copyright (C) 2003 Intel Corporation
 //
 //  File:       CimUtils.cpp
 //
@@ -12,6 +12,7 @@
 #include <cstring>
 #include <cstdio>
 #include <sstream>
+#include <algorithm>
 
 #include "CimUtils.h"
 #include "CimDateTime.h"
@@ -61,11 +62,11 @@ namespace Intel
 				{
 					if (!inStr || !outStr)
 						return;
-
+					string tmp((const char*)inStr);
 					base64_decodestate state;
 					base64_init_decodestate(&state);
 					*outStrSize = base64_decode_block((const char *)inStr,
-						strlen((const char *)inStr), (char*)outStr, &state);
+						tmp.length(), (char*)outStr, &state);
 				}
 
 				Base64::Base64()
@@ -134,7 +135,7 @@ namespace Intel
 						}
 						len = blen;
 						data = new unsigned char[len];
-						memcpy(data, buffer, len);
+						std::copy(buffer, buffer + len, data);
 					}
 				}
 
@@ -151,7 +152,7 @@ namespace Intel
 					len = other.len;
 					if (len > 0) {
 						data = new unsigned char[len];
-						memcpy(data, other.data, len);
+						std::copy(other.data, other.data + len, data);
 					}
 					return *this;
 				}

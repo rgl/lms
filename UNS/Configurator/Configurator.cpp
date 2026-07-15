@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2010-2025 Intel Corporation
+ * Copyright (C) 2010-2026 Intel Corporation
  */
 #include "Configurator.h"
 #include "LoadedServices.h"
@@ -9,7 +9,7 @@
 #include "Tools.h"
 #include "UNSEventsDefinition.h"
 
-#include "HECIException.h"
+#include "LMEClient.h"
 #include "AMTHICommand.h"
 #include "GetFWVersionCommand.h"
 #include "GetFWCapsCommand.h"
@@ -46,7 +46,6 @@ bool Configurator::IsLMEExists() const
 {
 	auto res = true;
 	FuncEntryExit<decltype(res)> fee(this, L"IsLMEExists", res);
-	std::unique_ptr<Intel::MEI_Client::HECI> heci(Intel::MEI_Client::GenerateLMEClient());
 
 	for (int i = 1; i <= NUM_RETRIES; i++)
 	{
@@ -54,22 +53,20 @@ bool Configurator::IsLMEExists() const
 
 		try
 		{
-			heci->Init(); // heci init succeeded => LME exists
+			Intel::MEI_Client::LME_Client::LMEClient heci;
+			heci.Connect(); // heci init succeeded => LME exists
 			UNS_DEBUG(L"heci Init succeeded\n");
-			heci->Deinit();
 			return res;
 		}
-		catch (Intel::MEI_Client::HeciNoClientException& e)
+		catch (const Intel::MEI_Client::MEIClientExceptionNoClient& e)
 		{
-			heci->Deinit();
 			UNS_WARNING(L"Heci init failed, LME doesn't exist. %C\n", e.what());
 			res = false;
 			return res;
 		}
-		catch(Intel::MEI_Client::HECIException& e)
+		catch (const Intel::MEI_Client::MEIClientException& e)
 		{
 			// heci init failed with another error than missing LME - retry a few times before defining as failure
-			heci->Deinit();
 			UNS_ERROR(L"Heci init failed. %C\n", e.what());
 		}
 		std::this_thread::sleep_for(std::chrono::milliseconds(LME_EXISTS_LOOP_DELAY));
@@ -102,11 +99,18 @@ bool CheckSharedStaticIPLoad(unsigned int portForwardingPort)
 	bool ret = false;
 	for (int i = 0; i < CONFIGURATOR_CHECK_RETRIES; i++)
 	{
-		SyncIpClient syncIpClient(portForwardingPort);
-		ret = syncIpClient.GetSharedStaticIpState(&sharedStaticIP);
-		if (ret)
-			break;
-		UNS_ERROR(L"Configurator:: getSharedStaticIpState failed to receive current state\n");
+		try
+		{
+			SyncIpClient syncIpClient(portForwardingPort);
+			ret = syncIpClient.GetSharedStaticIpState(&sharedStaticIP);
+			if (ret)
+				break;
+			UNS_ERROR(L"Configurator:: getSharedStaticIpState failed to receive current state\n");
+		}
+		catch (const std::exception& exc)
+		{
+			UNS_WARNING(L"Configurator::CheckSharedStaticIPLoad SyncIpClient threw exception %C\n", exc.what());
+		}
 	}
 	UNS_DEBUG(L"Configurator:CheckSharedStaticIPLoad %d\n", sharedStaticIP);
 	return ret && sharedStaticIP;
@@ -121,11 +125,18 @@ bool CheckTimeSyncStateLoad(unsigned int portForwardingPort)
 	bool ret = false;
 	for (int i = 0; i < CONFIGURATOR_CHECK_RETRIES; i++)
 	{
-		TimeSynchronizationClient timeClient(portForwardingPort);
-		ret = timeClient.GetLocalTimeSyncEnabledState(timeSyncState);
-		if (ret)
-			break;
-		UNS_ERROR(L"Configurator:: GetLocalTimeSyncEnabledState failed to receive current state\n");
+		try
+		{
+			TimeSynchronizationClient timeClient(portForwardingPort);
+			ret = timeClient.GetLocalTimeSyncEnabledState(timeSyncState);
+			if (ret)
+				break;
+			UNS_ERROR(L"Configurator: GetLocalTimeSyncEnabledState failed to receive current state\n");
+		}
+		catch (const std::exception& exc)
+		{
+			UNS_WARNING(L"Configurator::CheckTimeSyncStateLoad TimeSynchronizationClient threw exception %C\n", exc.what());
+		}
 	}
 	UNS_DEBUG(L"Configurator::CheckTimeSyncStateLoad %d\n", timeSyncState);
 	return ret && timeSyncState;
@@ -187,28 +198,35 @@ bool CheckFWCIRAWorkaround(unsigned int portForwardingPort)
 
 	for (int i = 0; i < CONFIGURATOR_CHECK_RETRIES; i++)
 	{
-		short exists = false;
-		AMTFCFHWSmanClient ciraClient(portForwardingPort);
-		if (!ciraClient.periodicAllDayPolicyExists(&exists))
+		try
 		{
-			continue;
+			short exists = false;
+			AMTFCFHWSmanClient ciraClient(portForwardingPort);
+			if (!ciraClient.periodicAllDayPolicyExists(&exists))
+			{
+				continue;
+			}
+			if (!exists)
+			{
+				UNS_DEBUG(L"Configurator::CheckFWCIRAWorkaround disabled, no periodic all day policy\n");
+				return false;
+			}
+			if (!ciraClient.userInitiatedPolicyRuleExists(&exists))
+			{
+				continue;
+			}
+			if (!exists)
+			{
+				UNS_DEBUG(L"Configurator::CheckFWCIRAWorkaround disabled, no user initiated policy\n");
+				return false;
+			}
+			UNS_DEBUG(L"Configurator::CheckFWCIRAWorkaround enabled\n");
+			return true;
 		}
-		if (!exists)
+		catch (const std::exception& exc)
 		{
-			UNS_DEBUG(L"Configurator::CheckFWCIRAWorkaround disabled, no periodic all day policy\n");
-			return false;
+			UNS_WARNING(L"Configurator::CheckFWCIRAWorkaround AMTFCFHWSmanClient threw exception %C\n", exc.what());
 		}
-		if (!ciraClient.userInitiatedPolicyRuleExists(&exists))
-		{
-			continue;
-		}
-		if (!exists)
-		{
-			UNS_DEBUG(L"Configurator::CheckFWCIRAWorkaround disabled, no user initiated policy\n");
-			return false;
-		}
-		UNS_DEBUG(L"Configurator::CheckFWCIRAWorkaround enabled\n");
-		return true;
 	}
 	UNS_ERROR(L"Configurator::CheckFWCIRAWorkaround disabled, failed to receive policy\n");
 	return false;
@@ -244,26 +262,34 @@ bool CheckWiFiProfileSyncRequired(unsigned int portForwardingPort)
 	bool enabled;
 	UNS_DEBUG(L"Configurator::CheckWiFiProfileSyncRequired\n");
 
-	WifiPortClient WifiPort(portForwardingPort);
-	size_t ports = 0;
-	bool ret = WifiPort.PortsNum(ports);
-	if (!ret)
-		UNS_ERROR(L"Configurator:: WifiPort failed to receive current state\n");
+	try
+	{
+		WifiPortClient WifiPort(portForwardingPort);
+		size_t ports = 0;
+		bool ret = WifiPort.PortsNum(ports);
+		if (!ret)
+			UNS_ERROR(L"Configurator:: WifiPort failed to receive current state\n");
 
-	UNS_DEBUG(L"Configurator:: WifiPort found %d ports\n", ports);
-	if (ports == 0) {
-		enabled = false;
-		return enabled;
+		UNS_DEBUG(L"Configurator:: WifiPort found %d ports\n", ports);
+		if (ports == 0) {
+			enabled = false;
+			return enabled;
+		}
+
+		WlanWSManClient WlanWSMan(portForwardingPort);
+		enabled = true;
+		ret = WlanWSMan.LocalProfileSynchronizationEnabled(enabled);
+		if (!ret)
+			UNS_ERROR(L"Configurator:: WlanWSMan failed to receive current state\n");
+		if (!enabled) {
+			UNS_DEBUG(L"Configurator:: LocalProfileSynchronization disabled in FW\n");
+			return enabled;
+		}
 	}
-
-	WlanWSManClient WlanWSMan(portForwardingPort);
-	enabled = true;
-	ret = WlanWSMan.LocalProfileSynchronizationEnabled(enabled);
-	if (!ret)
-		UNS_ERROR(L"Configurator:: WlanWSMan failed to receive current state\n");
-	if (!enabled) {
-		UNS_DEBUG(L"Configurator:: LocalProfileSynchronization disabled in FW\n");
-		return enabled;
+	catch (const std::exception& exc)
+	{
+		UNS_WARNING(L"Configurator:: WlanWSManClient/WifiPortClient threw exception %C\n", exc.what());
+		return false;
 	}
 
 	enabled = !CheckIfServiceInstalled(ACE_TEXT("EvtEng"));
@@ -591,7 +617,7 @@ bool Configurator::ResumeAceService(const ACE_TString &serviceName)
 int Configurator::handle_timeout (const ACE_Time_Value &current_time,const void *arg)
 {
 	FuncEntryExit<void> fee(this, L"handle_timeout");
-	UNS_DEBUG(L"%s service  arg=%lu\n",name().c_str(), arg);
+	UNS_DEBUG(L"%s service  arg=%Lu\n",name().c_str(), arg);
 	if (arg == &deferredResumeTimerId_)
 	{
 		deferredResumeTimerId_ = -1;

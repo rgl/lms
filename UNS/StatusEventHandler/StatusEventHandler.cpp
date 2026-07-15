@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2010-2025 Intel Corporation
+ * Copyright (C) 2010-2026 Intel Corporation
  */
 #include "UNSEventsDefinition.h"
 #include "StatusEventHandler.h"
@@ -10,10 +10,14 @@
 #include "GetRedirectionSessionsStateCommand.h"
 #include "GetFWCapsCommand.h"
 #include "GetLastHostResetReasonCommand.h"
+#include "GetLanInterfaceSettingsCommand.h"
 #include "GetEACStateCommand.h"
 #include "Tools.h"
 #include "MKHIErrorException.h"
 #include "DataStorageWrapper.h"
+#ifdef WIN32
+#include <Windows.h>
+#endif
 
 //WSMAN calls
 #include "CancelOptInClient.h"
@@ -59,6 +63,7 @@ const ACE_TString LINK_PROTECTION_PASSIVE_MSG(ACE_TEXT("Intel(R) ME WLAN Link Pr
 const ACE_TString LINK_PROTECTION_OFF_MSG(ACE_TEXT("Intel(R) ME WLAN Link Protection is OFF"));
 const ACE_TString LINK_CONTROL_HOST_MSG(ACE_TEXT("WLAN Link Control set to Host (Operating system)"));
 const ACE_TString LINK_CONTROL_ME_MSG(ACE_TEXT("WLAN Link Control set to Intel(R) ME"));
+const ACE_TString EVENT_FIRMWARE_RESET_MSG(ACE_TEXT("Intel(R) ME firmware reset"));
 
 StatusEventHandler::StatusEventHandler(): filter_(new StatusEventFilter)
 {
@@ -92,14 +97,6 @@ int StatusEventHandler::init (int argc, ACE_TCHAR *argv[])
 	GmsService::putq_timeout(this, name(), mbPtr);
 
 	return 0;
-}
-
-int StatusEventHandler::fini(void)
-{
-	UNS_DEBUG(L"StatusEventHandler service finalized\n");
-	
-	// Call base class fini for proper cleanup
-	return GmsSubService::fini();
 }
 
 int StatusEventHandler::suspend()
@@ -223,6 +220,12 @@ void StatusEventHandler::handleGeneralEvents(const GMS_AlertIndication *alert)
 	case EVENT_AGENT_4:
 		handleAgentPresenceEvents(alert);
 		break;
+	case EVENT_FIRMWARE_RESET:
+		handleFWResetEvent(alert);
+		break;
+	case EVENT_NETWORK_STATE_CHANGE:
+		handleNetworkStateChange(alert);
+		break;
 	}
 
 }
@@ -295,6 +298,30 @@ void StatusEventHandler::handleProvisioningEvents(const GMS_AlertIndication *ale
 	}
 	SaveCurrentStatus(curProvState, AMT_PROVISIONING_STATE_S);
 	NotifyConfigurator(curProvState, CONFIGURATION_TYPE::AMT_PROVISION_CONF);
+}
+
+void StatusEventHandler::handleFWResetEvent(const GMS_AlertIndication* alert)
+{
+	raiseGMS_AlertIndication(alert->category, EVENT_FIRMWARE_RESET, alert->Datetime, alert->MessageID, EVENT_FIRMWARE_RESET_MSG, alert->MessageArguments);
+}
+
+void StatusEventHandler::handleNetworkStateChange(const GMS_AlertIndication* alert)
+{
+	FuncEntryExit<void> fee(this, L"handleNetworkStateChange");
+	try {
+		Intel::MEI_Client::AMTHI_Client::GetLanInterfaceSettingsCommand lanSettingWireless(Intel::MEI_Client::AMTHI_Client::WIRELESS);
+		Intel::MEI_Client::AMTHI_Client::LAN_SETTINGS responseWireless = lanSettingWireless.getResponse();
+
+		UNS_DEBUG(L"StatusEventHandler::handleNetworkStateChange - WIRELESS LinkStatus %u\n", (unsigned int)responseWireless.LinkStatus);
+		if (responseWireless.LinkStatus == 0)
+		{
+			raiseGMS_AlertIndication(CATEGORY_GENERAL, EVENT_WLAN_LINK_IS_DOWN, alert->Datetime, alert->MessageID, ACE_TEXT("AMT Wireless Lan link is down"));
+		}
+	}
+	catch (const std::exception& e)
+	{
+		UNS_ERROR("Exception in GetLanInterfaceSettingsCommand %C\n", e.what());
+	}
 }
 
 void  StatusEventHandler::handleSystemDefenceEvents(const GMS_AlertIndication *alert)
@@ -394,6 +421,16 @@ void  StatusEventHandler::handleKVMEvents(const GMS_AlertIndication *alert)
 		break;
 	case EVENT_KVM_DATA_CHANNEL:
 		SaveCurrentStatus(KVM_STATE::KVM_DATA_CHANNEL);
+		break;
+	case EVENT_KVM_UNSET_VIRTUAL_DESKTOP_REG_KEY:
+		// set the ForceVirtualDesktop registry value to 0
+		UNS_DEBUG(L"Received EVENT_KVM_UNSET_VIRTUAL_DESKTOP_REG_KEY event, setting ForceVirtualDesktop registry value to 0\n");
+		SetForceVirtualDesktopRegistry(0);
+		break;
+	case EVENT_KVM_SET_VIRTUAL_DESKTOP_REG_KEY:
+		// set the ForceVirtualDesktop registry value to 1
+		UNS_DEBUG(L"Received EVENT_KVM_SET_VIRTUAL_DESKTOP_REG_KEY event, setting ForceVirtualDesktop registry value to 1\n");
+		SetForceVirtualDesktopRegistry(1);
 		break;
 	}
 }
@@ -709,10 +746,18 @@ void StatusEventHandler::GenerateSharedStaticIPEvents(bool AMTstate)
 	bool IPSyncEnabled = false;//TODO::to check if it is the right default value
 	if (AMTstate)
 	{
-		SyncIpClient syncIpClient(m_mainService->GetPortForwardingPort());
-		if (!syncIpClient.GetSharedStaticIpState(&IPSyncEnabled)) 
+		try
 		{
-			UNS_ERROR(L"StatusEventHandler: GetIPSyncState failed\n");
+			SyncIpClient syncIpClient(m_mainService->GetPortForwardingPort());
+			if (!syncIpClient.GetSharedStaticIpState(&IPSyncEnabled))
+			{
+				UNS_ERROR(L"StatusEventHandler: GetIPSyncState failed\n");
+				return;
+			}
+		}
+		catch (const std::exception& ex)
+		{
+			UNS_ERROR(L"StatusEventHandler: SyncIpClient threw exception: %C\n", ex.what());
 			return;
 		}
 	}
@@ -743,11 +788,19 @@ void StatusEventHandler::GenerateTimeSyncEvents(bool AMTstate)
 	bool timeSyncEnabled = false;
 	if (AMTstate)
 	{
-		TimeSynchronizationClient timeClient(m_mainService->GetPortForwardingPort());
-
-		if (!timeClient.GetLocalTimeSyncEnabledState(timeSyncEnabled))
+		try
 		{
-			UNS_ERROR(L"StatusEventHandler: GetTimeSyncState failed\n");
+			TimeSynchronizationClient timeClient(m_mainService->GetPortForwardingPort());
+
+			if (!timeClient.GetLocalTimeSyncEnabledState(timeSyncEnabled))
+			{
+				UNS_ERROR(L"StatusEventHandler: GetTimeSyncState failed\n");
+				return;
+			}
+		}
+		catch (const std::exception& ex)
+		{
+			UNS_ERROR(L"StatusEventHandler: TimeSynchronizationClient threw exception: %C\n", ex.what());
 			return;
 		}
 	}
@@ -838,23 +891,31 @@ void StatusEventHandler::GenerateWLANEvents()
 {
 	FuncEntryExit<void> fee(this, L"GenerateWLANEvents");
 
-	AMTEthernetPortSettingsClient client(m_mainService->GetPortForwardingPort());
-	unsigned int linkPreference, linkControl, linkProtection; 
-	bool isLink = false;
-	if(!client.GetAMTEthernetPortSettings(&linkPreference, &linkControl, &linkProtection, &isLink))
+	try
 	{
-		UNS_ERROR(L"StatusEventHandler: GetAMTEthernetPortSettings failed\n");
-		return;
-	}
-	if(!isLink)
-	{
-		UNS_DEBUG(L"No wireless link available\n");
-		return;
-	}
+		AMTEthernetPortSettingsClient client(m_mainService->GetPortForwardingPort());
+		unsigned int linkPreference, linkControl, linkProtection;
+		bool isLink = false;
+		if (!client.GetAMTEthernetPortSettings(&linkPreference, &linkControl, &linkProtection, &isLink))
+		{
+			UNS_ERROR(L"StatusEventHandler: GetAMTEthernetPortSettings failed\n");
+			return;
+		}
+		if (!isLink)
+		{
+			UNS_DEBUG(L"No wireless link available\n");
+			return;
+		}
 
-	CheckForStatusChange(static_cast<WLAN_CONTROL_STATE>(linkControl));
-	if(linkProtection != static_cast<int>(WLAN_PROTECTION_STATE::NOT_EXIST))
-		CheckForStatusChange(static_cast<WLAN_PROTECTION_STATE>(linkProtection));
+		CheckForStatusChange(static_cast<WLAN_CONTROL_STATE>(linkControl));
+		if (linkProtection != static_cast<int>(WLAN_PROTECTION_STATE::NOT_EXIST))
+			CheckForStatusChange(static_cast<WLAN_PROTECTION_STATE>(linkProtection));
+	}
+	catch (const std::exception& ex)
+	{
+		UNS_ERROR(L"StatusEventHandler: AMTEthernetPortSettingsClient threw exception: %C\n", ex.what());
+		return;
+	}
 }
 
 namespace 
@@ -1192,33 +1253,49 @@ Intel::MEI_Client::AMTHI_Client::AMT_PROVISIONING_STATE StatusEventHandler::Upda
  
 bool StatusEventHandler::GetUserConsentState(OPT_IN_STATE* pState, USER_CONSENT_POLICY* pPolicy)
 {
-	CancelOptInClient _CancelOptInClient(m_mainService->GetPortForwardingPort());
-	short UserConsentPolicy;
-	short UserConsentState;
+	try
+	{
+		CancelOptInClient _CancelOptInClient(m_mainService->GetPortForwardingPort());
+		short UserConsentPolicy;
+		short UserConsentState;
 
-	if (!_CancelOptInClient.GetUserConsentState(&UserConsentState, &UserConsentPolicy))
+		if (!_CancelOptInClient.GetUserConsentState(&UserConsentState, &UserConsentPolicy))
+			return false;
+		*pPolicy = (USER_CONSENT_POLICY)UserConsentPolicy;
+		*pState = (OPT_IN_STATE)UserConsentState;
+		UNS_DEBUG(L"GetUserConsentState State=%d, Policy=%d\n", *pState, *pPolicy);
+		return true;
+	}
+	catch (const std::exception& ex)
+	{
+		UNS_ERROR(L"StatusEventHandler: CancelOptInClient threw exception: %C\n", ex.what());
 		return false;
-	*pPolicy = (USER_CONSENT_POLICY)UserConsentPolicy;
-	*pState = (OPT_IN_STATE)UserConsentState;
-	UNS_DEBUG(L"GetUserConsentState State=%d, Policy=%d\n",*pState,*pPolicy);
-	return true;
+	}
 }
 
 #ifdef WIN32
 bool StatusEventHandler::GetLocalProfileSynchronizationEnabled(bool &enabled)
 {
-	WlanWSManClient WlanWSMan(m_mainService->GetPortForwardingPort());
-	bool ret;
+	try
+	{
+		WlanWSManClient WlanWSMan(m_mainService->GetPortForwardingPort());
+		bool ret;
 
-	ret = WlanWSMan.LocalProfileSynchronizationEnabled(enabled);
-	if (!ret) {
-		UNS_ERROR(L"StatusEventHandler:: WlanWSMan failed to receive current state\n");
+		ret = WlanWSMan.LocalProfileSynchronizationEnabled(enabled);
+		if (!ret) {
+			UNS_ERROR(L"StatusEventHandler: WlanWSMan failed to receive current state\n");
+			return false;
+		}
+		if (!enabled)
+			UNS_DEBUG(L"StatusEventHandler: LocalProfileSynchronization disabled in FW\n");
+
+		return true;
+	}
+	catch (const std::exception& ex)
+	{
+		UNS_ERROR(L"StatusEventHandler: WlanWSManClient threw exception: %C\n", ex.what());
 		return false;
 	}
-	if (!enabled)
-		UNS_DEBUG(L"StatusEventHandler:: LocalProfileSynchronization disabled in FW\n");
-
-	return true;
 }
 #else // WIN32
 bool StatusEventHandler::GetLocalProfileSynchronizationEnabled(bool &enabled)
@@ -1488,56 +1565,71 @@ bool StatusEventHandler::GetEACEnabled(bool& enable)
 
 bool StatusEventHandler::GetAlarmClockBootEvent(HostBootReasonClient::SX_STATES &previousSXState)
 {
-	HostBootReasonClient client(m_mainService->GetPortForwardingPort());
-
-	HostBootReasonClient::HOST_RESET_REASON int_resetReason;
-	HostBootReasonClient::SX_STATES int_previousSXState;
-	if (client.GetHostResetReason(int_resetReason, int_previousSXState))
+	try
 	{
-		if (int_resetReason == HostBootReasonClient::HOST_RESET_REASON::Alarm)
+		HostBootReasonClient client(m_mainService->GetPortForwardingPort());
+
+		HostBootReasonClient::HOST_RESET_REASON int_resetReason;
+		HostBootReasonClient::SX_STATES int_previousSXState;
+		if (client.GetHostResetReason(int_resetReason, int_previousSXState))
 		{
-			previousSXState = int_previousSXState;
-			return true;
+			if (int_resetReason == HostBootReasonClient::HOST_RESET_REASON::Alarm)
+			{
+				previousSXState = int_previousSXState;
+				return true;
+			}
 		}
+		return false;
 	}
-	return false;
+	catch (std::exception& ex)
+	{
+		UNS_ERROR(L"StatusEventHandler: HostBootReasonClient threw exception: %C\n", ex.what());
+		return false;
+	}
 }
 
 bool StatusEventHandler::GetKVMRedirectionState(bool& enable,KVM_STATE& connected)
 {
-	KVMWSManClient Client(m_mainService->GetPortForwardingPort());
-	OPT_IN_STATE UserConsentState = OPT_IN_STATE_NOT_STARTED;
-	USER_CONSENT_POLICY UserConsentPolicy;
-	unsigned short state;
-
-	if (Client.KVMRedirectionState(&state))
+	try
 	{
-		UNS_DEBUG(L"StatusEventHandler: KVMRedirectionState=%u\n", state);
-		switch (state)
-		{
-		case KVM_REDIRECTION_SAP_STATE_KVM_ENABLED_AND_CONNECTED:
-			enable=true;
-			connected = KVM_STATE::KVM_STARTED;
-			if (GetUserConsentState(&UserConsentState, &UserConsentPolicy) &&
-			   (UserConsentState == OPT_IN_STATE_REQUESTED || UserConsentState == OPT_IN_STATE_DISPLAYED))
-				connected = KVM_STATE::KVM_REQUESTED;
-			return true;
-		case KVM_REDIRECTION_SAP_STATE_KVM_DISABLED:
-			enable=false;
-			connected = KVM_STATE::KVM_STOPPED;
-			return true;
-		case KVM_REDIRECTION_SAP_STATE_KVM_ENABLED_AND_DISCONNECTED:
-			enable=true;
-			connected = KVM_STATE::KVM_STOPPED;
-			return true;
-		default:
-			UNS_ERROR(L"Wrong KVMRedirectionState=%u\n", state);
-			return false;
-		}
-	}
-	return false;
-}
+		KVMWSManClient Client(m_mainService->GetPortForwardingPort());
+		OPT_IN_STATE UserConsentState = OPT_IN_STATE_NOT_STARTED;
+		USER_CONSENT_POLICY UserConsentPolicy;
+		unsigned short state;
 
+		if (Client.KVMRedirectionState(&state))
+		{
+			UNS_DEBUG(L"StatusEventHandler: KVMRedirectionState=%u\n", state);
+			switch (state)
+			{
+			case KVM_REDIRECTION_SAP_STATE_KVM_ENABLED_AND_CONNECTED:
+				enable = true;
+				connected = KVM_STATE::KVM_STARTED;
+				if (GetUserConsentState(&UserConsentState, &UserConsentPolicy) &&
+					(UserConsentState == OPT_IN_STATE_REQUESTED || UserConsentState == OPT_IN_STATE_DISPLAYED))
+					connected = KVM_STATE::KVM_REQUESTED;
+				return true;
+			case KVM_REDIRECTION_SAP_STATE_KVM_DISABLED:
+				enable = false;
+				connected = KVM_STATE::KVM_STOPPED;
+				return true;
+			case KVM_REDIRECTION_SAP_STATE_KVM_ENABLED_AND_DISCONNECTED:
+				enable = true;
+				connected = KVM_STATE::KVM_STOPPED;
+				return true;
+			default:
+				UNS_ERROR(L"Wrong KVMRedirectionState=%u\n", state);
+				return false;
+			}
+		}
+		return false;
+	}
+	catch (const std::exception& ex)
+	{
+		UNS_ERROR(L"StatusEventHandler: KVMWSManClient threw exception: %C\n", ex.what());
+		return false;
+	}
+}
 
 void StatusEventHandler::publishUCStateEvent(UC_STATE state)
 {
@@ -1658,5 +1750,110 @@ void StatusEventHandler::requestDisplaySettings()
 	raiseGMS_AlertIndication(CATEGORY_KVM,EVENT_KVM_SCREEN_SETTING_UPDATE,getDateTime(),ACTIVE_MESSAGEID, ACE_TEXT(""));
 	UNS_DEBUG(L"Sending request for display settings\n");
 }
+
+#ifdef WIN32
+// Set the ForceVirtualDesktop registry value on all device instances under the base key.
+// Multiple instances may exist (e.g., after device re-enumeration or stale ghost entries),
+// so we apply the value to every instance that has a "Device Parameters" subkey.
+// We cannot reliably detect the active instance using registry alone because stale entries
+// may lack removal flags, and adding a new library (SetupDi) for this single operation is overkill.
+void StatusEventHandler::SetForceVirtualDesktopRegistry(uint32_t value)
+{
+	FuncEntryExit<void> fee(this, L"SetForceVirtualDesktopRegistry");
+
+	const wchar_t* regValueName = L"ForceVirtualDesktop";
+	// VID_8087 is Intel's USB vendor ID and PID_002C is the product ID of the Intel AMT KVM
+	// virtual USB input device; MI_01 is its HID mouse interface.
+	const wchar_t* deviceBaseKeyPath = L"SYSTEM\\CurrentControlSet\\Enum\\HID\\VID_8087&PID_002C&MI_01";
+	HKEY hDeviceBaseKey;
+
+	// Open with enumerate + query access to iterate over child keys
+	LONG result = RegOpenKeyExW(HKEY_LOCAL_MACHINE, deviceBaseKeyPath, 0, KEY_ENUMERATE_SUB_KEYS | KEY_QUERY_VALUE | KEY_WOW64_64KEY, &hDeviceBaseKey);
+	if (result != ERROR_SUCCESS)
+	{
+		UNS_ERROR(L"Failed to open device base key '%s', error: %d\n", deviceBaseKeyPath, result);
+		return;
+	}
+
+	LONG enumResult = ERROR_GEN_FAILURE;
+	DWORD index = 0;
+	wchar_t instanceName[MAX_PATH];		// max registry subkey name length is 255 chars
+	DWORD instanceNameSize = MAX_PATH;
+	bool regSetSucceeded = false;
+
+	while ((enumResult = RegEnumKeyExW(hDeviceBaseKey, index, instanceName, &instanceNameSize, NULL, NULL, NULL, NULL)) == ERROR_SUCCESS)
+	{
+		std::wstring devParamsPath = deviceBaseKeyPath;
+		devParamsPath += L"\\";
+		devParamsPath += instanceName;
+		devParamsPath += L"\\Device Parameters";
+
+		HKEY hKey;
+		LONG openResult = RegOpenKeyExW(HKEY_LOCAL_MACHINE, devParamsPath.c_str(), 0, KEY_SET_VALUE | KEY_WOW64_64KEY, &hKey);
+		if (openResult == ERROR_SUCCESS)
+		{
+			LONG setResult = RegSetValueExW(hKey, regValueName, 0, REG_DWORD, reinterpret_cast<const BYTE*>(&value), sizeof(uint32_t));
+			RegCloseKey(hKey);
+
+			if (setResult == ERROR_SUCCESS)
+			{
+				regSetSucceeded = true;
+			}
+			else
+			{
+				UNS_ERROR(L"Failed to set ForceVirtualDesktop on '%s', error: %d\n", devParamsPath.c_str(), setResult);
+			}
+		}
+		else
+		{
+			// A stale/ghost device instance may lack a "Device Parameters" subkey.
+			// In such cases ERROR_FILE_NOT_FOUND is the expected outcome so log it only
+			// at debug level to avoid redundant entries in the log
+			if (openResult == ERROR_FILE_NOT_FOUND)
+			{
+				UNS_DEBUG(L"Skipping instance without Device Parameters '%s'\n", devParamsPath.c_str());
+			}
+			else
+			{
+				UNS_ERROR(L"Failed to open Device Parameters '%s', error: %d\n", devParamsPath.c_str(), openResult);
+			}
+		}
+
+		index++;
+		instanceNameSize = MAX_PATH;	// reset buffer size for next call
+	}
+
+	RegCloseKey(hDeviceBaseKey);
+
+	// log issues in key enumeration or value setting
+	if (index == 0)
+	{
+		if (enumResult == ERROR_NO_MORE_ITEMS)
+		{
+			UNS_ERROR(L"Cannot set ForceVirtualDesktop: no device instances found under base key\n");
+		}
+		else
+		{
+			UNS_ERROR(L"Cannot set ForceVirtualDesktop: failed to enumerate device instances, error: %d\n", enumResult);
+		}
+	}
+	else
+	{
+		if (enumResult != ERROR_NO_MORE_ITEMS)
+		{
+			UNS_ERROR(L"ForceVirtualDesktop: device instance enumeration terminated early after %u instance(s), error: %d\n", index, enumResult);
+		}
+		if (!regSetSucceeded)
+		{
+			UNS_ERROR(L"Cannot set ForceVirtualDesktop: no successful write on any of %u enumerated instances\n", index);
+		}
+	}
+}
+#else
+void StatusEventHandler::SetForceVirtualDesktopRegistry(uint32_t)
+{
+	UNS_DEBUG(L"SetForceVirtualDesktopRegistry: not supported on this platform\n");
+}
+#endif
 
 LMS_SUBSERVICE_DEFINE (STATUSEVENTHANDLER, StatusEventHandler)

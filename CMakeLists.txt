@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2010-2025 Intel Corporation
+# Copyright (C) 2010-2026 Intel Corporation
 cmake_minimum_required (VERSION 3.15)
 project (lms)
 
@@ -48,7 +48,7 @@ if (UNIX)
   set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pie")
 
   #Secure library usage and secure compile flags
-  add_definitions (-fstack-protector-all -D_FORTIFY_SOURCE=2 -O2 -Wformat -Wformat-security)
+  add_definitions (-fstack-protector-all -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2 -O2 -Wformat -Wformat-security)
   add_compile_options (
      $<$<CXX_COMPILER_ID:GNU>:-fno-strict-overflow>
      $<$<CXX_COMPILER_ID:GNU>:-fno-delete-null-pointer-checks>
@@ -58,7 +58,7 @@ else (UNIX)
   add_compile_options(/GS)
   add_compile_options(/sdl)
   add_compile_options(/guard:cf)
-  set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /SafeSEH /NXCompat /DynamicBase")
+  set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /NXCompat /DynamicBase")
   set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /INCREMENTAL:NO /DEBUG:FULL /OPT:REF /OPT:ICF /guard:cf")
   set (CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /INCREMENTAL:NO /DEBUG:FULL /OPT:REF /OPT:ICF /guard:cf")
   add_definitions(/DUNICODE)

@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2010-2023 Intel Corporation
+ * Copyright (C) 2010-2026 Intel Corporation
  */
 #ifndef __STATUSEVENTHANDLER_H_
 #define __STATUSEVENTHANDLER_H_
@@ -102,8 +102,6 @@ typedef enum _OPT_IN_STATE
 protected:
 	virtual int init(int argc, ACE_TCHAR *argv[]);
 
-	virtual int fini (void);
-
 	virtual int suspend();
 
 	virtual int resume();
@@ -190,6 +188,8 @@ private:
 	void handleAgentPresenceEvents(const GMS_AlertIndication *alert);
 	void handleWlanEvents(const GMS_AlertIndication *alert);
 	void handleTimeSyncEvents(const GMS_AlertIndication *alert);
+	void handleFWResetEvent(const GMS_AlertIndication* alert);
+	void handleNetworkStateChange(const GMS_AlertIndication* alert);
 
 	void raiseGMS_AlertIndication(unsigned short category, unsigned long id, const std::string &Datetime,
 		const ACE_TString &MessageID, const ACE_TString &Message, const std::vector<ACE_TString> &MessageArguments);
@@ -207,6 +207,9 @@ private:
 	bool GetKVMRedirectionState(bool& enable,KVM_STATE& connected);
 	void requestDisplaySettings();
 
+	// set KVM Extended Display registry key value
+	void SetForceVirtualDesktopRegistry(uint32_t value);
+	
 	short m_KVM;
 	short m_SOL;
 	short m_IDER;

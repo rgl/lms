@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2013-2025 Intel Corporation
+ * Copyright (C) 2013-2026 Intel Corporation
  */
 #include <ace/Log_Msg.h>
 #include "AMTEthernetPortSettingsClient.h"
@@ -17,6 +17,8 @@
 #include "MNGIsChangeToAMTEnabledCommand.h"
 #include "KVMScreenSettingClient.h"
 #include "EthernetSettingsWSManClient.h"
+#include "WifiEndpointCapabilitiesClient.h"
+#include "WifiPortClient.h"
 
 #include "gtest/gtest.h"
 #include <sstream>
@@ -543,6 +545,48 @@ TEST_F(EthernetSettingsWSManClientTest, Enumerate)
 	{
 		std::cout << "EthernetSettingsWSManClient data ip: " <<
 			((settingsIterator->get()->IPAddressExists()) ? settingsIterator->get()->IPAddress() : "N/A") << std::endl;
+	}
+}
+
+class WifiEndpointCapabilitiesClientTest : public WsmanClientTest
+{
+protected:
+	void SetUp() override
+	{
+		WsmanClientTest::SetUp();
+		WifiPortClient WifiPort(m_port);
+		size_t wifiPortsNum = 0;
+		bool hasWifiPorts = WifiPort.PortsNum(wifiPortsNum);
+		if (!hasWifiPorts) {
+			cout << "Failed to get WifiPort.PortsNum" << endl;
+			return;
+		}
+
+		cout << "WifiPort found " << wifiPortsNum << " ports" << endl;
+		if (wifiPortsNum > 0) {
+			cout << "Wifi is enabled" << endl;
+			m_wifiEnabled = true;
+		}
+	}
+
+	bool m_wifiEnabled = false;
+};
+
+TEST_F(WifiEndpointCapabilitiesClientTest, isTransitionModeSupported)
+{
+	WifiEndpointCapabilitiesClient client(m_port);
+	bool supported = false;
+	bool ret = false;
+
+	if (m_wifiEnabled) {
+		EXPECT_TRUE(ret = client.isTransitionModeSupported(supported));
+	} else {
+		ASSERT_NO_THROW(ret = client.isTransitionModeSupported(supported));
+	}
+	if (ret) {
+		cout << "Transition Mode Supported: " << (supported ? "Yes" : "No") << endl;
+	} else {
+		cout << "WifiEndpointCapabilitiesClientTest::isTransitionModeSupported failed." << endl;
 	}
 }
 

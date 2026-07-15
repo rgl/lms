@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2018-2024 Intel Corporation
+ * Copyright (C) 2018-2026 Intel Corporation
  */
 #include "global.h"
 #include "WlanDefs.h"
@@ -16,7 +16,7 @@ namespace wlanps {
 
 	authenticationSet_t supportedAuthentication = { L"open", L"WPAPSK", L"WPA2PSK", L"WPA3SAE", L"OWE" };
 	encriptionSet_t supportedEncription = { L"WEP", L"TKIP", L"AES", L"none" };
-	crossauthSet_t crossauthSet = { {L"WPA3SAE", L"WPA2PSK"} };
+	crossauthSet_t crossauthSet = { {L"WPA3SAE", L"WPA2PSK", L"WPA3SAE_TM"}};
 
 	std::mutex WlanBL::_updateMutex;
 	bool WlanBL::transition_workaround = true;
@@ -85,39 +85,46 @@ namespace wlanps {
 	{
 		std::lock_guard<std::mutex> lock(_updateMutex);
 
-		bool wsmanStatus;
-		MeProfileList MeProfileList;
-		WlanWSManClient wsmanClient(portForwardingPort);
-
-		UNS_DEBUG(L"[ProfileSync] " __FUNCTIONW__"[%03l]: Enumerating ME (CSME FW) Profiles, Wait for it...\n");
-		if (!EnumerateMeProfiles(wsmanClient, MeProfileList))
+		try
 		{
-			UNS_DEBUG(L"[ProfileSync] " __FUNCTIONW__"[%03l]: Enumerate failed -> Stop sync operation\n");
-			return;
-		}
+			bool wsmanStatus;
+			MeProfileList MeProfileList;
+			WlanWSManClient wsmanClient(portForwardingPort);
 
-		WlanOsProfileList wlanOsProfiles;
-		WlanProfiles osProfiles(hwlan, transition_workaround); // Operating System Profiles, in OS format
-		if (!FetchOsProfiles(osProfiles, wlanOsProfiles))
+			UNS_DEBUG(L"[ProfileSync] " __FUNCTIONW__"[%03l]: Enumerating ME (CSME FW) Profiles, Wait for it...\n");
+			if (!EnumerateMeProfiles(wsmanClient, MeProfileList))
+			{
+				UNS_DEBUG(L"[ProfileSync] " __FUNCTIONW__"[%03l]: Enumerate failed -> Stop sync operation\n");
+				return;
+			}
+
+			WlanOsProfileList wlanOsProfiles;
+			WlanProfiles osProfiles(hwlan, transition_workaround); // Operating System Profiles, in OS format
+			if (!FetchOsProfiles(osProfiles, wlanOsProfiles))
+			{
+				UNS_DEBUG(L"[ProfileSync] " __FUNCTIONW__"[%03l]: Fetch OS Profiles failed -> Stop sync operation\n");
+				return;
+			}
+
+			UNS_DEBUG(L"[ProfileSync] " __FUNCTIONW__"[%03l]: Delete Profiles which are not in the top16 user profiles\n");
+			wsmanStatus = CleanupProfilesInMe(wsmanClient, MeProfileList, wlanOsProfiles, true);
+			UNS_DEBUG(L"[ProfileSync] " __FUNCTIONW__"[%03l]: CleanupProfilesInMe completed %C\n", wsmanStatus == true ? "successfully" : "with failure");
+
+			if (transition_workaround)
+			{
+				osProfiles.RefillProfilesWithID(wlanOsProfiles);
+			}
+
+			UNS_DEBUG(L"[ProfileSync] " __FUNCTIONW__"[%03l]: Add Missing profiles \n");
+			wsmanStatus = AddMissingProfilesToMe(wsmanClient, MeProfileList, wlanOsProfiles);
+			UNS_DEBUG(L"[ProfileSync] " __FUNCTIONW__"[%03l]: AddMissingProfilesToMe completed %C\n", wsmanStatus == true ? "successfully" : "with failure");
+
+			CleanOsProfileList(wlanOsProfiles);
+		}
+		catch (const std::exception& ex)
 		{
-			UNS_DEBUG(L"[ProfileSync] " __FUNCTIONW__"[%03l]: Fetch OS Profiles failed -> Stop sync operation\n");
-			return;
+			UNS_ERROR(L"WlanBL: WlanWSManClient threw exception: %C\n", ex.what());
 		}
-
-		UNS_DEBUG(L"[ProfileSync] " __FUNCTIONW__"[%03l]: Delete Profiles which are not in the top16 user profiles\n");
-		wsmanStatus = CleanupProfilesInMe(wsmanClient, MeProfileList, wlanOsProfiles, true);
-		UNS_DEBUG(L"[ProfileSync] " __FUNCTIONW__"[%03l]: CleanupProfilesInMe completed %C\n", wsmanStatus == true ? "successfully" : "with failure");
-
-		if (transition_workaround)
-		{
-			osProfiles.RefillProfilesWithID(wlanOsProfiles);
-		}
-
-		UNS_DEBUG(L"[ProfileSync] " __FUNCTIONW__"[%03l]: Add Missing profiles \n");
-		wsmanStatus = AddMissingProfilesToMe(wsmanClient, MeProfileList, wlanOsProfiles);
-		UNS_DEBUG(L"[ProfileSync] " __FUNCTIONW__"[%03l]: AddMissingProfilesToMe completed %C\n", wsmanStatus == true ? "successfully" : "with failure");
-
-		CleanOsProfileList(wlanOsProfiles);
 	}
 
 	bool WlanBL::CleanupProfilesInMe(WlanWSManClient &wsmanClient, MeProfileList &MeProfileList, WlanOsProfileList &wlanOsProfiles, bool all)
@@ -150,7 +157,7 @@ namespace wlanps {
 
 				if (bFoundMatch == false)
 				{
-					//If I got here, it means I didn't find a match in the OS list for this profile
+					//No match found in the OS list for this profile
 					std::string name = (*meIterator)->ElementName();
 					UNS_DEBUG(L"[ProfileSync] " __FUNCTIONW__"[%03l]: %-25C  Profile is not at the top 16 - Deleting Profile From ME !\n",
 						name.c_str());
@@ -318,11 +325,12 @@ namespace wlanps {
 
 		// translate to CIM_WiFiEndpointSettings
 		static const std::map<std::wstring, unsigned short> authMap = {
-			{ L"open",    AuthenticationMethodOpenSystem },
-			{ L"WPAPSK",  AuthenticationMethodWPAPSK },
-			{ L"WPA2PSK", AuthenticationMethodWPA2PSK },
-			{ L"WPA3SAE", AuthenticationMethodWPA3SAE },
-			{ L"OWE",     AuthenticationMethodWPA3OWE }
+			{ L"open",		AuthenticationMethodOpenSystem },
+			{ L"WPAPSK",	AuthenticationMethodWPAPSK },
+			{ L"WPA2PSK",	AuthenticationMethodWPA2PSK },
+			{ L"WPA3SAE",	AuthenticationMethodWPA3SAE },
+			{ L"OWE",		AuthenticationMethodWPA3OWE },
+			{ L"WPA3SAE_TM",AuthenticationMethodWPA3SAE_TM }
 		};
 		static const std::map<std::wstring, unsigned short> encrMap = {
 			{ L"WEP",  EncryptionMethodWEP },
@@ -364,8 +372,8 @@ namespace wlanps {
 		wifiSettings2.EncryptionMethod(encr);
 
 		// PSKPassPhrase should be NULL if AuthenticationMethod does not contain
-		// 4 ("WPA PSK") or 6 ("WPA2 PSK") or 32768 ("WPA3 SAE").
-		if ((auth == AuthenticationMethodWPAPSK || auth == AuthenticationMethodWPA2PSK || auth == AuthenticationMethodWPA3SAE) &&
+		// 4 ("WPA PSK") or 6 ("WPA2 PSK") or 32768 ("WPA3 SAE") or 32772 ("WPA3 SAE TM").
+		if ((auth == AuthenticationMethodWPAPSK || auth == AuthenticationMethodWPA2PSK || auth == AuthenticationMethodWPA3SAE || auth == AuthenticationMethodWPA3SAE_TM) &&
 			encr != EncryptionMethodNone)
 		{
 			wifiSettings1.PSKPassPhrase(ACE_Wide_To_Ascii(profileData->keyMaterial).char_rep());

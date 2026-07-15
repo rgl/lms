@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2009-2023 Intel Corporation
+ * Copyright (C) 2009-2026 Intel Corporation
  */
 /*++
 
@@ -11,7 +11,6 @@
 #ifndef __LME_CONNECTION_H__
 #define __LME_CONNECTION_H__
 #include "global.h"
-#include "heci.h"
 
 #include <memory>
 #include <mutex>
@@ -20,6 +19,7 @@
 #include <ace/Thread.h>
 #include <ace/Thread_Manager.h>
 #include <ace/Event.h>
+#include "LMEClient.h"
 #include "LMS_if_constants.h"
 #include "FuncEntryExit.h"
 
@@ -239,8 +239,6 @@ typedef void (*HECICallback) (void *param, void *buffer, unsigned int len, int *
 typedef bool (*DeviceNotifyCallBack)(void *param, HDEVNOTIFY * hNotify, HANDLE drvHandle, bool regOrUnreg);
 typedef void (*SignalSelectCallback) (void* protocol);
 
-
-
 class LMEConnection {
 public:
 	LMEConnection(bool verbose = false);
@@ -250,7 +248,7 @@ public:
 	LMEConnection& operator = (const LMEConnection&) = delete;
 
 	struct InitParameters
-		{
+	{
 		
 		InitParameters(HECICallback heciCb, void * heciCbParam, 
 							DeviceNotifyCallBack devNotifyCb, void * devNotifyCbParam, 
@@ -270,7 +268,7 @@ public:
 		
 		private:
 			InitParameters();
-		};
+	};
 
 	bool Init(InitParameters & params);
 	bool IsInitialized();
@@ -287,13 +285,13 @@ public:
 	bool ChannelOpenReplaySuccess(uint32_t recipient, uint32_t sender);
 	bool ChannelOpenReplayFailure(uint32_t recipient, uint32_t reason);
 	bool ChannelClose(uint32_t recipient);
-	bool ChannelData(uint32_t recipient, uint32_t len, unsigned char *buffer);
-	bool ChannelWindowAdjust(uint32_t recipient, uint32_t len);
-	bool IsSelfDisconnect() { return _selfDisconnect; }
-	bool IsClientNotFound() { return _clientNotFound; }
+	bool ChannelData(uint32_t recipient, uint32_t len, char *buffer);
+	bool ChannelWindowAdjust(uint32_t recipient, size_t len);
+	bool IsSelfDisconnect() const { return _selfDisconnect; }
+	bool IsClientNotFound() const { return _clientNotFound; }
 	//parameter : signalSelect - indicates that we want to signal the main thread to exit the select and reinit the connection
 	void Deinit(bool signalSelect = false);
-	size_t GetBufferSize() const;
+	size_t GetBufferSize() const { try { return _heci.GetBufferSize(); } catch (const Intel::MEI_Client::MEIClientException&) { return 0; }}
 	unsigned int GetPortForwardingPort() const { return m_portForwardingPort; }
 
 	enum INIT_STATES {
@@ -310,8 +308,8 @@ private:
 
 	void DeinitInternal();
 	void _doRX();
-	ssize_t _receiveMessage(unsigned char *buffer, size_t len);
-	bool _sendMessage(unsigned char *buffer, size_t len);
+	bool _sendMessage(const std::vector<uint8_t> &buffer);
+	bool _sendCommandMessage(uint8_t command);
 
 	std::vector<uint8_t> _txBuffer;
 
@@ -319,10 +317,8 @@ private:
 	SignalSelectCallback _signalSelectCallback; //callback for waking the service from the Select() to allow re-initilization 
 	void *_cbParam;
 	std::mutex _initLock;
-	std::mutex _sendMessageLock;
 	INIT_STATES _initState;
-	INIT_STATES getInitState() { std::lock_guard<std::mutex> lock(_initLock); return _initState; }
-	std::unique_ptr<Intel::MEI_Client::HECI> _heci;
+	Intel::MEI_Client::LME_Client::LMEClient _heci;
 	ACE_Event _threadStartedEvent;
 	ACE_Event _portIsOk;
 	unsigned int m_portForwardingPort;
@@ -342,7 +338,7 @@ private:
 	using FuncEntryExit = FuncEntryExit_<T, LMEConnection>;
 public:
 	const wchar_t *short_name() const { return L"LMEC"; }
-	void SetShutdownInProgress(bool shutdown);
+	void SetShutdownInProgress(bool shutdown) { m_shutdownInProgress = shutdown; }
 };
 
 #endif

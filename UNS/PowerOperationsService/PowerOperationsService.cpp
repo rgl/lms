@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2010-2025 Intel Corporation
+ * Copyright (C) 2010-2026 Intel Corporation
  */
 // PowerOperationsService.cpp : Defines the exported functions for the DLL application.
 
@@ -55,14 +55,16 @@ bool PowerOperationsService::shutdownOp(bool reboot, int attempt, std::wstringst
 	ret = OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken);
 	if (!ret)
 	{
-		UNS_ERROR(L"PowerOperationsService::initiateShutDown - OpenProcessToken failed, error %lu\n", GetLastError());
+		DWORD err = GetLastError();
+		UNS_ERROR(L"PowerOperationsService::initiateShutDown - OpenProcessToken failed, error %Lu\n", err);
 	}
 	else
 	{
 		ret = LookupPrivilegeValue(NULL,SE_SHUTDOWN_NAME, &prv.Privileges[0].Luid);
 		if (!ret)
 		{
-			UNS_ERROR(L"PowerOperationsService::initiateShutDown - LookupPrivilegeValue failed, error %lu\n", GetLastError());
+			DWORD err = GetLastError();
+			UNS_ERROR(L"PowerOperationsService::initiateShutDown - LookupPrivilegeValue failed, error %Lu\n", err);
 		}
 		else
 		{
@@ -70,7 +72,18 @@ bool PowerOperationsService::shutdownOp(bool reboot, int attempt, std::wstringst
 			prv.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
 			ret = AdjustTokenPrivileges(hToken, FALSE, &prv, 0, (PTOKEN_PRIVILEGES)NULL, 0);
 			if (!ret)
-				UNS_ERROR(L"PowerOperationsService::initiateShutDown - AdjustTokenPrivileges failed, error %lu\n", GetLastError());
+			{
+				DWORD err = GetLastError();
+				UNS_ERROR(L"PowerOperationsService::initiateShutDown - AdjustTokenPrivileges failed, error %Lu\n", err);
+			}
+			else
+			{
+				DWORD err = GetLastError();
+				if (err == ERROR_NOT_ALL_ASSIGNED)
+				{
+					UNS_ERROR(L"PowerOperationsService::initiateShutDown - AdjustTokenPrivileges failed, error %Lu\n", err);
+				}
+			}
 		}
 		CloseHandle(hToken);
 	}
@@ -91,7 +104,7 @@ bool PowerOperationsService::shutdownOp(bool reboot, int attempt, std::wstringst
 			return 0;
 		}
 		ss<<err;
-		UNS_ERROR(L"remote graceful getLastError %lu\n",err);
+		UNS_ERROR(L"remote graceful getLastError %Lu\n",err);
 	}
 	return ret;
 }
@@ -104,8 +117,10 @@ void getPowerCapabilities(bool& sleep,bool& hibernate)
 	SYSTEM_POWER_CAPABILITIES systemCaps = { 0 };
 	if (!GetPwrCapabilities(&systemCaps))
 	{
-		UNS_ERROR(L"getPowerCapabilities - GetPwrCapabilities failed with error %lu\n", GetLastError());
+		DWORD err = GetLastError();
+		UNS_ERROR(L"getPowerCapabilities - GetPwrCapabilities failed with error %Lu\n", err);
 		sleep = hibernate = false;
+		return;
 	}
 	//systemCaps.HiberFilePresent shows if hibernation was enabled/disabled (such as using "powercfg.exe /h off")
 	//systemCaps.SystemS4 shows if hibernation is available or not because of internal reasons (such as disabling gfx driver)
@@ -313,14 +328,6 @@ int PowerOperationsService::init (int argc, ACE_TCHAR *argv[])
 	return 0;
 }
 
-int PowerOperationsService::fini (void)
-{
-	UNS_DEBUG(L"PowerOperationsService finalized\n");
-	
-	// Call base class fini for proper cleanup
-	return EventHandler::fini();
-}
-
 int PowerOperationsService::suspend()
 {
 	gmsSubServiceReactor.cancel_timer(this);
@@ -428,13 +435,21 @@ void PowerOperationsService::addPowerCapabilities()
 	}
 	//update graceful power capabilities
 	UNS_DEBUG(L"adding graceful power operations\n");
-	PowerManagementCapabilitiesClient powerManagementCapabilitiesClient(m_mainService->GetPortForwardingPort());
-	bool sleep,hibernate;
-	getPowerCapabilities(sleep,hibernate);
-	UNS_DEBUG(L"adding graceful power operations %d %d\n", sleep,hibernate);
-	if (!powerManagementCapabilitiesClient.addGracefulOperations(sleep,hibernate))
+	try
 	{
-		UNS_ERROR(L"powerManagementCapabilitiesClient.addGracefulOperations() failed with error %lu\n",GetLastError());
+		PowerManagementCapabilitiesClient powerManagementCapabilitiesClient(m_mainService->GetPortForwardingPort());
+		bool sleep, hibernate;
+		getPowerCapabilities(sleep, hibernate);
+		UNS_DEBUG(L"adding graceful power operations %d %d\n", sleep, hibernate);
+		if (!powerManagementCapabilitiesClient.addGracefulOperations(sleep, hibernate))
+		{
+			UNS_ERROR(L"powerManagementCapabilitiesClient.addGracefulOperations() failed\n");
+			return;
+		}
+	}
+	catch (const std::exception& ex)
+	{
+		UNS_ERROR(L"PowerOperationsService: PowerManagementCapabilitiesClient threw exception: %C\n", ex.what());
 		return;
 	}
 }

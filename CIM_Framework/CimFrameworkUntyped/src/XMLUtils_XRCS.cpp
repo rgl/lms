@@ -1,6 +1,6 @@
 //----------------------------------------------------------------------------
 //
-// Copyright (c) Intel Corporation, 2003 - 2012  All Rights Reserved.
+// Copyright (C) 2003 Intel Corporation
 //
 //  File:       
 //
@@ -570,7 +570,7 @@ namespace XMLUtils
 			return xml;
 		}	
 
-		void GetAttributes(map<string, string>& attribs) const
+		void GetAttributes(std::map<string, string>& attribs) const
 		{
 			YStr ystr1, ystr2;
 			try
@@ -1041,7 +1041,7 @@ namespace XMLUtils
 		return impl->GetNSPrefix();
 	}
 
-	void XMLElement::GetAttributes(map<string, string>& attribs) const
+	void XMLElement::GetAttributes(std::map<string, string>& attribs) const
 	{
 		impl->GetAttributes(attribs);
 	}

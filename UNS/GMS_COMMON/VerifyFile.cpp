@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2011-2025 Intel Corporation
+ * Copyright (C) 2011-2026 Intel Corporation
  */
 #include "VerifyFile.h"
 #include "DataStorageGenerator.h"
@@ -106,7 +106,8 @@ HMODULE VerifyFile::SafeLoadDll(const std::wstring & wcName)
 	file_handle = CreateFile(filepath.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 	if (file_handle == INVALID_HANDLE_VALUE)
 	{
-		UNS_ERROR(L"Create file %W failed with %u\n", wcName.c_str(), GetLastError());
+		DWORD err = GetLastError();
+		UNS_ERROR(L"Create file %W failed with %u\n", wcName.c_str(), err);
 		return nullptr;
 	}
 
@@ -120,6 +121,11 @@ HMODULE VerifyFile::SafeLoadDll(const std::wstring & wcName)
 	if (VerifyDll(filepath, file_handle))
 	{
 		library_handle = LoadLibrary(filepath.c_str());
+		if (library_handle == nullptr)
+		{
+			DWORD dwLastError = GetLastError();
+			UNS_ERROR(L"LoadLibrary failed for %W with %lu\n", filepath.c_str(), dwLastError);
+		}
 	}
 
 	CloseHandle(file_handle);
@@ -328,7 +334,8 @@ bool VerifyFile::VerifyCertificateName(const std::wstring &filePath)
 
 		if(!fResult)
 		{
-			UNS_ERROR(L"VerifyCertificateName: CryptQueryObject Error %d\n", GetLastError());
+			DWORD err = GetLastError();
+			UNS_ERROR(L"VerifyCertificateName: CryptQueryObject Error %d\n", err);
 			break;
 		}
 		// Get signer information size.

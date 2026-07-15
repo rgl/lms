@@ -14,6 +14,8 @@
  */
 
 #include <grp.h>
+#include <errno.h>
+#include <string.h>
 #include "defs.h"
 #include "wsmand-daemon.h"
 
@@ -49,6 +51,21 @@ static const struct http_header http_headers[] = {
 
 struct shttpd_ctx *init_ctx(const char *config_file, int argc, char *argv[]);
 static void process_connection(struct conn *, int, int);
+
+
+#if !defined(NO_SSL)
+#include <openssl/err.h>
+static void _shttpd_report_ssl_error(const char *what, const char *value)
+{
+    char error_message[512];
+    unsigned long ssl_error_code = ERR_get_error();
+    ERR_error_string_n(ssl_error_code, error_message, 511);
+    if (value != NULL)
+      _shttpd_elog(E_LOG, NULL, "%s %s: %s (%s)", what, value, strerror(errno), error_message);
+    else
+      _shttpd_elog(E_LOG, NULL, "%s: %s (%s)", what, strerror(errno), error_message);
+}
+#endif
 
 int
 _shttpd_is_true(const char *str)
@@ -777,13 +794,13 @@ add_socket(struct worker *worker, int sock, int is_ssl)
 	(void) _shttpd_set_non_blocking_mode(sock);
 
 	if (getpeername(sock, &sa.u.sa, &sa.len)) {
-		_shttpd_elog(l, NULL, "add_socket: %s", strerror(errno));
+		_shttpd_elog(l, NULL, "add_socket failed with: %s", strerror(errno));
 #if !defined(NO_SSL)
 	} else if (is_ssl && (ssl = SSL_new(ctx->ssl_ctx)) == NULL) {
-		_shttpd_elog(l, NULL, "add_socket: SSL_new: %s", strerror(ERRNO));
+		_shttpd_report_ssl_error("add_socket: SSL_new failed", NULL);
 		(void) closesocket(sock);
 	} else if (is_ssl && SSL_set_fd(ssl, sock) == 0) {
-		_shttpd_elog(l, NULL, "add_socket: SSL_set_fd: %s", strerror(ERRNO));
+		_shttpd_report_ssl_error("add_socket: SSL_set_fd failed", NULL);
 		(void) closesocket(sock);
 		SSL_free(ssl);
 #endif /* NO_SSL */
@@ -793,7 +810,7 @@ add_socket(struct worker *worker, int sock, int is_ssl)
 			SSL_free(ssl);
 #endif /* NO_SSL */
 		(void) closesocket(sock);
-		_shttpd_elog(l, NULL, "add_socket: calloc: %s", strerror(ERRNO));
+		_shttpd_elog(l, NULL, "add_socket: calloc failed with: %s", strerror(ERRNO));
 	} else {
 		c->rem.conn	= c->loc.conn = c;
 		c->ctx		= ctx;
@@ -879,7 +896,7 @@ set_ports(struct shttpd_ctx *ctx, const char *p)
 		port	= atoi(p);
 
 		if ((sock = shttpd_open_listening_port(port)) == -1) {
-			_shttpd_elog(E_LOG, NULL, "cannot open port %d", port);
+			_shttpd_elog(E_LOG, NULL, "cannot open port %d: %s", port, strerror(errno));
 			goto fail;
 		} else if (is_ssl && ctx->ssl_ctx == NULL) {
 			(void) closesocket(sock);
@@ -888,7 +905,7 @@ set_ports(struct shttpd_ctx *ctx, const char *p)
 			goto fail;
 		} else if ((l = calloc(1, sizeof(*l))) == NULL) {
 			(void) closesocket(sock);
-			_shttpd_elog(E_LOG, NULL, "cannot allocate listener");
+			_shttpd_elog(E_LOG, NULL, "cannot allocate listener: %s", strerror(errno));
 			goto fail;
 		} else {
 			l->is_ssl = is_ssl;
@@ -1430,10 +1447,10 @@ set_uid(struct shttpd_ctx *ctx, const char *uid)
 	else {
             setgroups(0, NULL);
             if (setgid(pw->pw_gid) == -1)
-		_shttpd_elog(E_FATAL, NULL, "%s: setgid(%s): %s",
+		_shttpd_elog(E_FATAL, NULL, "%s: setgid(%s) failed: %s",
 		    __func__, uid, strerror(errno));
 	    else if (setuid(pw->pw_uid) == -1)
-		_shttpd_elog(E_FATAL, NULL, "%s: setuid(%s): %s",
+		_shttpd_elog(E_FATAL, NULL, "%s: setuid(%s) failed: %s",
 		    __func__, uid, strerror(errno));
         }
 #endif /* !_WIN32 */
@@ -1514,11 +1531,11 @@ set_ssl(struct shttpd_ctx *ctx, const char *pem)
         OPENSSL_init_ssl();
 	if ((CTX = SSL_CTX_new(TLS_server_method())) == NULL)
 #endif
-		_shttpd_elog(E_LOG, NULL, "SSL_CTX_new error");
+	        _shttpd_report_ssl_error("SSL_CTX_new failed", NULL);
 	else if (SSL_CTX_use_certificate_file(CTX, wsmand_options_get_ssl_cert_file(), SSL_FILETYPE_PEM) != 1)
-		_shttpd_elog(E_LOG, NULL, "cannot open certificate file %s", pem);
+	        _shttpd_report_ssl_error("cannot open certificate file", wsmand_options_get_ssl_cert_file());
 	else if (SSL_CTX_use_PrivateKey_file(CTX, wsmand_options_get_ssl_key_file(), SSL_FILETYPE_PEM) != 1)
-		_shttpd_elog(E_LOG, NULL, "cannot open PrivateKey %s", pem);
+		_shttpd_report_ssl_error("cannot open PrivateKey", wsmand_options_get_ssl_key_file());
 	else
 		retval = TRUE;
 
@@ -1575,8 +1592,12 @@ set_ssl(struct shttpd_ctx *ctx, const char *pem)
 	if (ssl_cipher_list) {
           int rc = SSL_CTX_set_cipher_list(CTX, ssl_cipher_list);
           if (rc != 1) {
-            _shttpd_elog(E_LOG, NULL, "Failed to set SSL cipher list \"%s\"", ssl_cipher_list);
+	    _shttpd_report_ssl_error("Failed to set SSL cipher list", ssl_cipher_list);
           }
+          else {
+            _shttpd_elog(E_LOG, NULL, "Set SSL cipher list to \"%s\"", ssl_cipher_list);
+          }
+              
         }
         else {
           _shttpd_elog(E_LOG, NULL, "Empty 'ssl_cipher_list' defaults to 'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256'.");

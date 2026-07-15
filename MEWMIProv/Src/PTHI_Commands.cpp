@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2009-2025 Intel Corporation
+ * Copyright (C) 2009-2026 Intel Corporation
  */
 /*++
 
@@ -46,6 +46,10 @@
 #include "UnprovisionCommand.h"
 #include "DebugPrints.h"
 #include "GetKVMSessionStateCommand.h"
+#include "HTMGetFLogSizeCommand.h"
+#include "HTMGetFLogCommand.h"
+#include "GetCIRALogCommand.h"
+#include "GetRTCValueCommand.h"
 
 #pragma comment (lib,"version")
 #pragma comment (lib,"Ws2_32")
@@ -80,7 +84,8 @@ HRESULT IsUserAdmin()
 
 	if (bRes == FALSE)
 	{
-		UNS_ERROR("Unable to OpenThreadToken (0x%x)\n", GetLastError());
+		DWORD err = GetLastError();
+		UNS_ERROR("Unable to OpenThreadToken (0x%x)\n", err);
 		hr = S_FALSE;//STATUS_SECURITY_PROBLEM;
 		CloseHandle(hThreadTok);
 		CoRevertToSelf();
@@ -97,7 +102,8 @@ HRESULT IsUserAdmin()
 
 	if (!bRes)
 	{
-		UNS_ERROR("Unable to GetTokenInformation - TokenImpersonationLevel (0x%x)\n", GetLastError());
+		DWORD err = GetLastError();
+		UNS_ERROR("Unable to GetTokenInformation - TokenImpersonationLevel (0x%x)\n", err);
 		hr = S_FALSE;//STATUS_SECURITY_PROBLEM;
 		CloseHandle(hThreadTok);
 		CoRevertToSelf () ;
@@ -120,7 +126,8 @@ HRESULT IsUserAdmin()
 
 	if (!bRes && GetLastError() != ERROR_INSUFFICIENT_BUFFER)
 	{
-		UNS_ERROR("Unable to GetTokenInformation - TokenGroups (0x%x)\n", GetLastError());
+		DWORD err = GetLastError();
+		UNS_ERROR("Unable to GetTokenInformation - TokenGroups (0x%x)\n", err);
 		hr = S_FALSE;
 		CloseHandle(hThreadTok);
 		CoRevertToSelf();
@@ -135,7 +142,8 @@ HRESULT IsUserAdmin()
 		dwBytesReturned, &dwBytesReturned);
 	if (!bRes || dwBytesReturned < sizeof(TOKEN_GROUPS))
 	{
-		UNS_ERROR("Unable to GetTokenInformation - TokenGroups (0x%x)\n", GetLastError());
+		DWORD err = GetLastError();
+		UNS_ERROR("Unable to GetTokenInformation - TokenGroups (0x%x)\n", err);
 		hr = S_FALSE;
 		CloseHandle(hThreadTok);
 		CoRevertToSelf();
@@ -159,7 +167,8 @@ HRESULT IsUserAdmin()
 	// Create a SID on the local computer.
 	if(!CreateWellKnownSid(WinBuiltinAdministratorsSid, NULL, AdministratorsSid, &SidSize))
 	{
-		UNS_ERROR("Unable to CreateWellKnownSid (0x%x)\n", GetLastError());
+		DWORD err = GetLastError();
+		UNS_ERROR("Unable to CreateWellKnownSid (0x%x)\n", err);
 		LocalFree(AdministratorsSid);
 		CloseHandle(hThreadTok);
 		CoRevertToSelf () ;
@@ -221,7 +230,8 @@ HRESULT getApplicationDetails(std::string& userNameStr, std::string& domainNameS
 
 	if (bRes == FALSE)
 	{
-		UNS_ERROR("Unable to OpenThreadToken (0x%x)\n", GetLastError());
+		DWORD err = GetLastError();
+		UNS_ERROR("Unable to OpenThreadToken (0x%x)\n", err);
 		hr = S_FALSE;//STATUS_SECURITY_PROBLEM;
 		CloseHandle(hThreadTok);
 		CoRevertToSelf();
@@ -238,7 +248,8 @@ HRESULT getApplicationDetails(std::string& userNameStr, std::string& domainNameS
 
 	if (!bRes)
 	{
-		UNS_ERROR("Unable to GetTokenInformation - TokenImpersonationLevel(0x%x)\n", GetLastError());
+		DWORD err = GetLastError();
+		UNS_ERROR("Unable to GetTokenInformation - TokenImpersonationLevel(0x%x)\n", err);
 		hr = S_FALSE;//STATUS_SECURITY_PROBLEM;
 		CloseHandle(hThreadTok);
 		CoRevertToSelf () ;
@@ -259,7 +270,8 @@ HRESULT getApplicationDetails(std::string& userNameStr, std::string& domainNameS
 
 	if (!bRes && GetLastError() != ERROR_INSUFFICIENT_BUFFER)
 	{
-		UNS_ERROR("GetTokenInformation first failed (%d, (0x%x)\n", bRes, GetLastError());
+		DWORD err = GetLastError();
+		UNS_ERROR("GetTokenInformation first failed (%d, 0x%x)\n", bRes, err);
 		hr = S_FALSE;
 		CloseHandle(hThreadTok);
 		CoRevertToSelf();
@@ -285,11 +297,15 @@ HRESULT getApplicationDetails(std::string& userNameStr, std::string& domainNameS
 	bRes = ::LookupAccountSid(NULL, user->User.Sid, NULL, (LPDWORD)&userNameSize, NULL, (LPDWORD)&domainNameSize, &eUse);
 	if (!bRes)
 	{
-		UNS_ERROR("LookupAccountSid failed (%d, (0x%x)\n", bRes, GetLastError());
-		hr = S_FALSE;
-		CloseHandle(hThreadTok);
-		CoRevertToSelf();
-		return hr;
+		DWORD err = GetLastError();
+		if (ERROR_INSUFFICIENT_BUFFER != err)
+		{
+			UNS_ERROR("LookupAccountSid failed (%d, (0x%x)\n", bRes, err);
+			hr = S_FALSE;
+			CloseHandle(hThreadTok);
+			CoRevertToSelf();
+			return hr;
+		}
 	}
 
 	userName = (char *)GlobalAlloc(
@@ -727,6 +743,51 @@ unsigned int PTHI_Commands::GetAMTVersion(std::wstring* AMTVersion)
 	return rc;
 }
 
+unsigned int PTHI_Commands::GetFullFWVersion(std::vector<std::wstring>& fwVersionArray)
+{
+	unsigned int rc = AMT_STATUS_INTERNAL_ERROR;
+	try
+	{
+		// Ensure output container has required slots (FT, NFT, reserved).
+		fwVersionArray.resize(3);
+
+		Intel::MEI_Client::MKHI_Client::GetFWVersionCommand command;
+		Intel::MEI_Client::MKHI_Client::GET_FW_VER_RESPONSE response = command.getResponse();
+
+		// Build FT (Firmware Type) version string
+		std::wstringstream ftStream;
+		ftStream << response.FTMajor << L"." << response.FTMinor << L"."
+		         << response.FTHotFix << L"." << response.FTBuildNo;
+		fwVersionArray[0] = ftStream.str();
+
+		// Build NFT (Non-Firmware Type / Recovery) version string
+		std::wstringstream nftStream;
+		nftStream << response.NFTMajor << L"." << response.NFTMinor << L"."
+		          << response.NFTHotFix << L"." << response.NFTBuildNo;
+		fwVersionArray[1] = nftStream.str();
+
+		// Third element reserved for future use (empty for now)
+		fwVersionArray[2] = L"";
+
+		rc = 0;
+	}
+	catch (Intel::MEI_Client::MKHI_Client::MKHIErrorException& e)
+	{
+		UNS_ERROR("GetFWVersionCommand failed ret=%d\n", e.getErr());
+		rc = e.getErr();
+	}
+	catch (MEIClientException& e)
+	{
+		UNS_ERROR("GetFWVersionCommand failed %C\n", e.what());
+	}
+	catch (std::exception& e)
+	{
+		UNS_ERROR("Exception in GetFWVersionCommand %C\n", e.what());
+	}
+
+	return rc;
+}
+
 std::wstring CFG_IPv4_ADDRESStowstring(unsigned int IP)
 {
 	WCHAR wsip[50];
@@ -930,6 +991,127 @@ unsigned int PTHI_Commands::GetKVMSessionActivation(bool* activated)
 	catch (std::exception& e)
 	{
 		UNS_ERROR("Exception in GetKVMSessionActivation %C\n", e.what());
+	}
+
+	return rc;
+}
+
+unsigned int PTHI_Commands::GetRTCValue(uint32_t& rtcValue)
+{
+	unsigned int rc = AMT_STATUS_INTERNAL_ERROR;
+	try
+	{
+		Intel::MEI_Client::MKHI_Client::GetRTCValueCommand command;
+		Intel::MEI_Client::MKHI_Client::RTC_VALUE_RESPONSE response = command.getResponse();
+		rtcValue = response.RTCValue;
+		rc = 0;
+	}
+	catch (Intel::MEI_Client::MKHI_Client::MKHIErrorException& e)
+	{
+		UNS_ERROR("GetRTCValueCommand failed ret=%d\n", e.getErr());
+		rc = e.getErr();
+	}
+	catch (MEIClientException& e)
+	{
+		UNS_ERROR("GetRTCValueCommand failed %C\n", e.what());
+	}
+	catch (std::exception& e)
+	{
+		UNS_ERROR("Exception in GetRTCValueCommand %C\n", e.what());
+	}
+
+	return rc;
+}
+
+unsigned int PTHI_Commands::GetFLogSize(uint32_t& flogSize)
+{
+	unsigned int rc = AMT_STATUS_INTERNAL_ERROR;
+	try
+	{
+		Intel::MEI_Client::HOTHAM_Client::HTMGetFLogSizeCommand command;
+		Intel::MEI_Client::HOTHAM_Client::GET_FLOG_SIZE_RESP response = command.getResponse();
+		flogSize = response.response;
+		rc = 0;
+	}
+	catch (Intel::MEI_Client::HOTHAM_Client::HOTHAMErrorException& e)
+	{
+		UNS_ERROR("HTMGetFLogSizeCommand failed ret=%d\n", e.getErr());
+		rc = e.getErr();
+	}
+	catch (MEIClientException& e)
+	{
+		UNS_ERROR("HTMGetFLogSizeCommand failed %C\n", e.what());
+	}
+	catch (std::exception& e)
+	{
+		UNS_ERROR("Exception in HTMGetFLogSizeCommand %C\n", e.what());
+	}
+
+	return rc;
+}
+
+unsigned int PTHI_Commands::GetFLog(std::string& flogData)
+{
+	// Flow:
+	// 1) Invoke HTMGetFLogCommand against firmware.
+	// 2) Copy the returned payload into the output string.
+	// 3) Return AMT status (0 on success, firmware/transport code on failure).
+	unsigned int rc = AMT_STATUS_INTERNAL_ERROR;
+	try
+	{
+		Intel::MEI_Client::HOTHAM_Client::HTMGetFLogCommand command;
+		Intel::MEI_Client::HOTHAM_Client::GET_FLOG_RESP response = command.getResponse();
+		flogData = response.response;
+		rc = 0;
+	}
+	catch (Intel::MEI_Client::HOTHAM_Client::HOTHAMErrorException& e)
+	{
+		UNS_ERROR("HTMGetFLogCommand failed ret=%d\n", e.getErr());
+		rc = e.getErr();
+	}
+	catch (MEIClientException& e)
+	{
+		UNS_ERROR("HTMGetFLogCommand failed %C\n", e.what());
+	}
+	catch (std::exception& e)
+	{
+		UNS_ERROR("Exception in HTMGetFLogCommand %C\n", e.what());
+	}
+
+	return rc;
+}
+
+// Flow:
+// 1) Invoke GetCIRALogCommand against firmware.
+// 2) Copy the returned CIRA event log payload into the output string.
+// 3) Return AMT status (0 on success, firmware/transport code on failure).
+unsigned int PTHI_Commands::GetCIRALog(std::string& ciraLogData)
+{
+	unsigned int rc = AMT_STATUS_INTERNAL_ERROR;
+	try
+	{
+		Intel::MEI_Client::AMTHI_Client::GetCIRALogCommand command;
+		Intel::MEI_Client::AMTHI_Client::GET_CIRA_LOG_RESPONSE response = command.getResponse();
+		ciraLogData = response.response;
+		rc = 0;
+	}
+	catch (Intel::MEI_Client::AMTHI_Client::AMTHIErrorException& e)
+	{
+		UNS_ERROR("GetCIRALogCommand failed ret=%d\n", e.getErr());
+		rc = e.getErr();
+	}
+	catch (MEIClientExceptionZeroBuffer& e)
+	{
+		UNS_ERROR("GetCIRALogCommand failed (zero-length response) %C\n", e.what());
+		rc = AMT_STATUS_AMTHI_ZERO_LEN_RESP;
+	}
+	catch (MEIClientException& e)
+	{
+		UNS_ERROR("GetCIRALogCommand failed %C\n", e.what());
+	}
+	catch (std::exception& e)
+	{
+		UNS_ERROR("Exception in GetCIRALogCommand %C\n", e.what());
 	}
 
 	return rc;

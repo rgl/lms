@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Copyright (C) 2010-2023 Intel Corporation
+ * Copyright (C) 2010-2026 Intel Corporation
  */
 /*++
 
@@ -8,11 +8,15 @@
 
 --*/
 
+// HOTHAM command wrapper for retrieving firmware flog data
+
 #ifndef __HTM_GET_FLOG_COMMAND_H__
 #define __HTM_GET_FLOG_COMMAND_H__
 
 #include "HOTHAMCommand.h"
 #include "MEIparser.h"
+#include <string>
+#include <vector>
 
 namespace Intel
 {
@@ -20,30 +24,24 @@ namespace Intel
 	{
 		namespace HOTHAM_Client
 		{
-			typedef struct _HTM_CMD_FLOG_RESP
-			{
-				uint32_t response;
-			} HTM_CMD_FLOG_RESP;
-
 			struct GET_FLOG_RESP
 			{
-				GET_FLOG_RESP() : response({ 0 }) {}
-				HTM_CMD_FLOG_RESP response;
+				std::string response;
 
 				void parse (std::vector<uint8_t>::const_iterator& itr, const std::vector<uint8_t>::const_iterator &end)
 				{
-					Intel::MEI_Client::parseData(response, itr, end);
+					response = parseHexString(itr, end);
 				}
 			};
 
-			class HTMGetFatalErrorsRequest : public HOTHAMCommandRequest
+			class HTMGetFLogRequest : public HOTHAMCommandRequest
 			{
 			public:
-				HTMGetFatalErrorsRequest() {}
-				virtual ~HTMGetFatalErrorsRequest() {}
+				HTMGetFLogRequest() {}
+				virtual ~HTMGetFLogRequest() {}
 
 			private:
-				static const uint32_t REQUEST_CODE = 0x80; //#define PCH_DFX_FLOG_GET_SIZE 0x80
+				static const uint32_t REQUEST_CODE = 0x81;
 				virtual uint8_t requestHeaderReqCode()
 				{
 					return REQUEST_CODE;
@@ -55,15 +53,15 @@ namespace Intel
 				}
 			};
 
-			class HTMGetFatalErrorsCommand : public HOTHAMCommand
+			class HTMGetFLogCommand : public HOTHAMCommand
 			{
 			public:
-				HTMGetFatalErrorsCommand()
+				HTMGetFLogCommand()
 				{
-					m_request = std::make_shared<HTMGetFatalErrorsRequest>();
+					m_request = std::make_shared<HTMGetFLogRequest>();
 					Transact();
 				}
-				virtual ~HTMGetFatalErrorsCommand() {}
+				virtual ~HTMGetFLogCommand() {}
 
 				GET_FLOG_RESP getResponse() { return m_response.getResponse(); }
 
